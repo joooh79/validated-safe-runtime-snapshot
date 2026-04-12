@@ -150,6 +150,67 @@ npm run api:examples
 
 The orchestration example command runs lightweight deterministic fixtures through the API orchestration layer and prints normalized results.
 
+Build the deployable web service:
+
+```bash
+npm run build
+```
+
+Start the HTTP server:
+
+```bash
+npm start
+```
+
+The server binds to `0.0.0.0` and listens on `process.env.PORT` with a default local fallback of `10000`.
+
+## HTTP Service
+
+This repository now includes a minimal Node web service entrypoint at `src/server.ts`.
+
+Available endpoints:
+
+- `GET /`
+- `GET /health`
+- `POST /preview`
+- `POST /execute`
+
+Transport boundary notes:
+
+- the HTTP layer stays thin and forwards JSON into `orchestrateRequest`
+- preview-first remains mandatory
+- `POST /preview` always returns preview-oriented orchestration output and never performs final execution
+- `POST /execute` uses the same orchestration path and only executes when the request body includes explicit confirmation through `interactionInput.confirmation.confirmed: true`
+- HTTP requests should send `normalizedContract` JSON; `contractInput` is not supported over HTTP unless an in-process parser is wired separately
+
+## Render Deployment
+
+Deploy this repo as a Render Web Service with runtime language `Node`.
+
+Recommended commands:
+
+- Build Command: `npm install && npm run build`
+- Start Command: `npm start`
+
+Render runtime behavior:
+
+- Render provides `PORT`; the server listens on that value and binds to `0.0.0.0`
+- Node version is pinned through `package.json` `engines.node` to `20.x`
+
+Optional environment variables:
+
+- `AIRTABLE_MODE`
+  - allowed values: `dryrun`, `mock`, `real`
+  - default behavior: if omitted and Airtable secrets are absent, the service defaults to dry-run
+- `AIRTABLE_BASE_ID`
+- `AIRTABLE_API_TOKEN`
+
+Provider defaulting:
+
+- if both Airtable secrets are present, the server defaults to the real Airtable provider
+- if not, the server stays in dry-run mode unless `AIRTABLE_MODE=mock` is set
+- `PORT` is managed by Render for the web service and should not be hardcoded
+
 ## What To Read First
 
 Start here:

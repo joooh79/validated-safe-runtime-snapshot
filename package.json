@@ -3,15 +3,21 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": "20.x"
+  },
   "scripts": {
+    "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "build:validation": "tsc -p tsconfig.validation.json",
     "prevalidate:golden": "npm run build:validation",
     "validate:golden": "node .validation-build/src/validation/cli.js",
     "preapi:examples": "npm run build:validation",
-    "api:examples": "node .validation-build/src/api/__fixtures__/cli.js"
+    "api:examples": "node .validation-build/src/api/__fixtures__/cli.js",
+    "start": "node dist/server.js"
   },
   "devDependencies": {
+    "@types/node": "^22.10.2",
     "typescript": "^5.6.3"
   }
 }
