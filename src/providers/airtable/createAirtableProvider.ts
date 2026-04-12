@@ -1,0 +1,356 @@
+/**
+ * Airtable Provider Factory
+ *
+ * Creates a DirectWriteProvider instance that translates provider-neutral
+ * WriteActions to Airtable API requests through the mapping registry.
+ *
+ * Design:
+ * - Fail-closed: errors on unmapped/unverified actions
+ * - Dependency-injected: testable without real HTTP
+ * - Provider-neutral boundary: keeps Airtable logic contained
+ *
+ * Canon-aware runtime boundary:
+ * - the repo now has a broader target schema canon for future alignment
+ * - this provider remains intentionally limited to the currently validated safe
+ *   slice until activation work is done explicitly
+ */
+
+import type {
+  DirectWriteProvider,
+  ProviderExecutionContext,
+  ProviderPlanPreflightResult,
+} from '../../types/provider.js';
+import type { WriteAction } from '../../types/write-plan.js';
+import type { ActionExecutionResult } from '../../types/execution.js';
+import type { WritePlan } from '../../types/write-plan.js';
+import { mapPatientAction } from './buildPayload/mapPatientAction.js';
+import { mapVisitAction } from './buildPayload/mapVisitAction.js';
+import { mapCaseAction } from './buildPayload/mapCaseAction.js';
+import { mapLinkAction } from './buildPayload/mapLinkAction.js';
+import { mapSnapshotAction } from './buildPayload/mapSnapshotAction.js';
+import { getUnsupportedActionError } from './buildPayload/handleUnsupportedAction.js';
+import { createDefaultMappingRegistry } from './mappingRegistry.js';
+import { getErrorMessage } from './errors.js';
+
+export interface AirtableProviderConfig {
+  baseId: string;
+  apiToken: string;
+  requestExecutor: 'real' | 'dryrun' | 'mock';
+  mappingRegistry?: ReturnType<typeof createDefaultMappingRegistry>;
+}
+
+export interface RequestExecutor {
+  execute(request: CreateRequest | UpdateRequest): Promise<ExecutorResponse>;
+}
+
+export interface CreateRequest {
+  type: 'create';
+  table: string;
+  fields: Record<string, unknown>;
+}
+
+export interface UpdateRequest {
+  type: 'update';
+  table: string;
+  recordId: string;
+  fields: Record<string, unknown>;
+}
+
+export interface ExecutorResponse {
+  success: boolean;
+  recordId?: string;
+  error?: string;
+}
+
+/**
+ * Create an Airtable provider
+ */
+export function createAirtableProvider(
+  config: AirtableProviderConfig,
+  requestExecutor?: RequestExecutor,
+): DirectWriteProvider {
+  const registry = config.mappingRegistry || createDefaultMappingRegistry();
+
+  return {
+    async preflightPlan(
+      plan: WritePlan,
+      ctx: ProviderExecutionContext,
+    ): Promise<ProviderPlanPreflightResult> {
+      const blockedActionIds: string[] = [];
+      const reasons: string[] = [];
+
+      for (const action of plan.actions) {
+        if (action.actionType.startsWith('no_op')) {
+          continue;
+        }
+
+        const validationError = getActionMappingError(
+          action,
+          registry,
+          config.requestExecutor !== 'real',
+        );
+        if (!validationError) {
+          continue;
+        }
+
+        blockedActionIds.push(action.actionId);
+        reasons.push(`${action.actionType}: ${getErrorMessage(validationError)}`);
+      }
+
+      if (blockedActionIds.length > 0) {
+        return {
+          ok: false,
+          reason: reasons.join(' | '),
+          blockedActionIds,
+        };
+      }
+
+      return { ok: true };
+    },
+    async executeAction(
+      action: WriteAction,
+      ctx: ProviderExecutionContext,
+    ): Promise<ActionExecutionResult> {
+      try {
+        // Handle no-op actions
+        if (action.actionType.startsWith('no_op')) {
+          return {
+            actionId: action.actionId,
+            actionType: action.actionType,
+            status: 'no_op',
+          };
+        }
+
+        // Map action to Airtable request based on entity type.
+        // The migrated Airtable schema is now known.
+        // The runtime keeps snapshot updates narrow: PRE remains active, and
+        // PLAN / DR / DX / RAD / OP updates are active only on same-date flows
+        // with an explicit existing row target. Broader Case/link semantics
+        // still stay fail-closed.
+        const validationError = getActionMappingError(
+          action,
+          registry,
+          config.requestExecutor !== 'real',
+        );
+        if (validationError) {
+          const errorMsg = getErrorMessage(validationError);
+          return {
+            actionId: action.actionId,
+            actionType: action.actionType,
+            status: 'failed',
+            errorMessage: errorMsg,
+          };
+        }
+
+        let mapResult;
+
+        if (action.entityType === 'patient') {
+          mapResult = mapPatientAction({ action, registry });
+        } else if (action.entityType === 'visit') {
+          mapResult = mapVisitAction({ action, registry });
+        } else if (action.entityType === 'case') {
+          mapResult = mapCaseAction({ action, registry });
+        } else if (action.entityType === 'link') {
+          mapResult = mapLinkAction({
+            action,
+            registry,
+            resolvedRefs: ctx.resolvedRefs,
+            requireRuntimeRefs: true,
+          });
+        } else {
+          mapResult = mapSnapshotAction({ action, registry });
+          if (
+            !mapResult.success &&
+            canUseAbstractSameDateSnapshotUpdate(
+              action,
+              config.requestExecutor !== 'real',
+            )
+          ) {
+            mapResult = {
+              success: true,
+              request: {
+                // This dryrun/mock-only escape hatch preserves the validated
+                // same-date PRE update baseline using the migrated PRE table
+                // label. It is not a statement that broader snapshot or Case
+                // activation has happened.
+                table: 'Pre-op Clinical Findings',
+                fields: {},
+              },
+            };
+          }
+        }
+
+        // Check if mapping failed
+        if (!mapResult.success) {
+          const mapError =
+            mapResult.error ?? getUnsupportedActionError(action);
+          const errorMsg = getErrorMessage(mapError);
+          return {
+            actionId: action.actionId,
+            actionType: action.actionType,
+            status: 'failed',
+            errorMessage: errorMsg,
+          };
+        }
+
+        // In dry-run mode, return success without executing
+        if (config.requestExecutor === 'dryrun') {
+          return {
+            actionId: action.actionId,
+            actionType: action.actionType,
+            status: 'success',
+            providerRef: `simulated_${action.actionId}`,
+          };
+        }
+
+        // In mock mode, return success without executing
+        if (config.requestExecutor === 'mock') {
+          return {
+            actionId: action.actionId,
+            actionType: action.actionType,
+            status: 'success',
+            providerRef: `mock_${action.actionId}`,
+          };
+        }
+
+        // Execute through request executor if available
+        if (!requestExecutor) {
+          return {
+            actionId: action.actionId,
+            actionType: action.actionType,
+            status: 'failed',
+            errorMessage: 'No request executor configured',
+          };
+        }
+
+        // Build request
+        const request =
+          'recordId' in mapResult.request
+            ? {
+                type: 'update' as const,
+                table: mapResult.request.table,
+                recordId: mapResult.request.recordId,
+                fields: mapResult.request.fields,
+              }
+            : {
+                type: 'create' as const,
+                table: mapResult.request.table,
+                fields: mapResult.request.fields,
+              };
+
+        // Execute request
+        const response = await requestExecutor.execute(request);
+
+        if (!response.success) {
+          return {
+            actionId: action.actionId,
+            actionType: action.actionType,
+            status: 'failed',
+            errorMessage: response.error || 'Unknown provider error',
+          };
+        }
+
+        return {
+          actionId: action.actionId,
+          actionType: action.actionType,
+          status: 'success',
+          providerRef: response.recordId || action.actionId,
+        };
+      } catch (err) {
+        return {
+          actionId: action.actionId,
+          actionType: action.actionType,
+          status: 'failed',
+          errorMessage: err instanceof Error ? err.message : String(err),
+        };
+      }
+    },
+  };
+}
+
+/**
+ * Create a mock Airtable provider for testing
+ */
+export function createMockAirtableProvider(): DirectWriteProvider {
+  return createAirtableProvider({
+    baseId: 'mock_base_id',
+    apiToken: 'mock_api_token',
+    requestExecutor: 'mock',
+  });
+}
+
+/**
+ * Create a dry-run Airtable provider (validates but doesn't execute)
+ */
+export function createDryRunAirtableProvider(): DirectWriteProvider {
+  return createAirtableProvider({
+    baseId: 'dryrun_base_id',
+    apiToken: 'dryrun_api_token',
+    requestExecutor: 'dryrun',
+  });
+}
+
+function getActionMappingError(
+  action: WriteAction,
+  registry: ReturnType<typeof createDefaultMappingRegistry>,
+  allowAbstractSameDateSnapshotUpdate: boolean,
+) {
+  if (action.actionType.startsWith('no_op')) {
+    return null;
+  }
+
+  if (action.entityType === 'patient') {
+    const mapResult = mapPatientAction({ action, registry });
+    return mapResult.success ? null : mapResult.error;
+  }
+
+  if (action.entityType === 'visit') {
+    const mapResult = mapVisitAction({ action, registry });
+    return mapResult.success ? null : mapResult.error;
+  }
+
+  if (action.entityType === 'case') {
+    const mapResult = mapCaseAction({ action, registry });
+    return mapResult.success ? null : mapResult.error;
+  }
+
+  if (action.entityType === 'link') {
+    const mapResult = mapLinkAction({
+      action,
+      registry,
+      requireRuntimeRefs: false,
+    });
+    return mapResult.success ? null : mapResult.error;
+  }
+
+  if (action.entityType === 'snapshot') {
+    const mapResult = mapSnapshotAction({ action, registry });
+    if (
+      !mapResult.success &&
+      canUseAbstractSameDateSnapshotUpdate(
+        action,
+        allowAbstractSameDateSnapshotUpdate,
+      )
+    ) {
+      return null;
+    }
+    return mapResult.success ? null : mapResult.error;
+  }
+
+  return getUnsupportedActionError(action);
+}
+
+function canUseAbstractSameDateSnapshotUpdate(
+  action: WriteAction,
+  allowAbstractSameDateSnapshotUpdate: boolean,
+): boolean {
+  // Keep this narrow. It exists only to preserve the current validated PRE
+  // same-date correction path while broader target-canon activation remains
+  // intentionally blocked.
+  return (
+    allowAbstractSameDateSnapshotUpdate &&
+    action.actionType === 'update_snapshot' &&
+    action.target.branch === 'PRE' &&
+    (!action.target.entityRef || action.target.entityRef === 'NEW')
+  );
+}

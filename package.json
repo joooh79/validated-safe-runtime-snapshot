@@ -1,0 +1,17 @@
+{
+  "name": "smr-sender-rebuild-clean-package",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "build:validation": "tsc -p tsconfig.validation.json",
+    "prevalidate:golden": "npm run build:validation",
+    "validate:golden": "node .validation-build/src/validation/cli.js",
+    "preapi:examples": "npm run build:validation",
+    "api:examples": "node .validation-build/src/api/__fixtures__/cli.js"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3"
+  }
+}
