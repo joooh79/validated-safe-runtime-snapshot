@@ -1,10 +1,17 @@
 import { createServer } from 'node:http';
 import { orchestrateRequest } from './api/orchestrateRequest.js';
+import { createMcpSseTransport } from './mcp/sseTransport.js';
 const DEFAULT_PORT = 10000;
 const HOST = '0.0.0.0';
 const MAX_JSON_BODY_BYTES = 1024 * 1024;
 const JSON_CONTENT_TYPE = 'application/json; charset=utf-8';
 const defaultProviderConfig = resolveDefaultProviderConfig();
+const mcpTransport = createMcpSseTransport({
+    serverName: 'smr-sender-rebuild-clean-package',
+    serverVersion: '0.1.0',
+    protocolVersion: '2025-06-18',
+    handleToolCall: handleMcpToolCall,
+});
 const server = createServer(async (request, response) => {
     try {
         await routeRequest(request, response);
@@ -59,6 +66,15 @@ async function routeRequest(request, response) {
         respondJson(response, 200, { ok: true });
         return;
     }
+    if (method === 'GET' && url.pathname === '/sse') {
+        mcpTransport.handleSseConnection(request, response);
+        return;
+    }
+    if (method === 'POST' && url.pathname === '/message') {
+        const body = await readJsonBody(request);
+        await mcpTransport.handleMessage(request, response, body);
+        return;
+    }
     if (url.pathname === '/preview' || url.pathname === '/execute') {
         if (method !== 'POST') {
             response.setHeader('Allow', 'POST');
@@ -101,6 +117,19 @@ function buildOrchestrationRequest(pathname, payload) {
         };
     }
     return request;
+}
+async function handleMcpToolCall(input) {
+    const pathname = input.toolName === 'preview' ? '/preview' : '/execute';
+    const request = buildOrchestrationRequest(pathname, input.payload);
+    if (input.toolName === 'execute') {
+        request.interactionInput = {
+            ...request.interactionInput,
+            confirmation: request.interactionInput?.confirmation ?? {
+                confirmed: true,
+            },
+        };
+    }
+    return orchestrateRequest(request);
 }
 async function readJsonBody(request) {
     const contentType = request.headers['content-type'];

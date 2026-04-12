@@ -5,12 +5,19 @@ import type {
   ApiOrchestrationResponse,
   ApiProviderConfig,
 } from './types/api.js';
+import { createMcpSseTransport, type McpToolCallInput } from './mcp/sseTransport.js';
 
 const DEFAULT_PORT = 10000;
 const HOST = '0.0.0.0';
 const MAX_JSON_BODY_BYTES = 1024 * 1024;
 const JSON_CONTENT_TYPE = 'application/json; charset=utf-8';
 const defaultProviderConfig = resolveDefaultProviderConfig();
+const mcpTransport = createMcpSseTransport({
+  serverName: 'smr-sender-rebuild-clean-package',
+  serverVersion: '0.1.0',
+  protocolVersion: '2025-06-18',
+  handleToolCall: handleMcpToolCall,
+});
 
 const server = createServer(async (request, response) => {
   try {
@@ -80,6 +87,17 @@ async function routeRequest(
     return;
   }
 
+  if (method === 'GET' && url.pathname === '/sse') {
+    mcpTransport.handleSseConnection(request, response);
+    return;
+  }
+
+  if (method === 'POST' && url.pathname === '/message') {
+    const body = await readJsonBody(request);
+    await mcpTransport.handleMessage(request, response, body);
+    return;
+  }
+
   if (url.pathname === '/preview' || url.pathname === '/execute') {
     if (method !== 'POST') {
       response.setHeader('Allow', 'POST');
@@ -140,6 +158,25 @@ function buildOrchestrationRequest(
   }
 
   return request;
+}
+
+async function handleMcpToolCall(
+  input: McpToolCallInput,
+): Promise<ApiOrchestrationResponse> {
+  const pathname = input.toolName === 'preview' ? '/preview' : '/execute';
+  const request = buildOrchestrationRequest(pathname, input.payload);
+
+  if (input.toolName === 'execute') {
+    request.interactionInput = {
+      ...request.interactionInput,
+      confirmation:
+        request.interactionInput?.confirmation ?? {
+          confirmed: true,
+        },
+    };
+  }
+
+  return orchestrateRequest(request);
 }
 
 async function readJsonBody(request: IncomingMessage): Promise<unknown> {
