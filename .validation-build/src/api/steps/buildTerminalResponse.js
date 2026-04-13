@@ -119,8 +119,8 @@ function getNextStepHint(terminalStatus, interactionMode, confirmed) {
     switch (terminalStatus) {
         case 'preview_pending_confirmation':
             return confirmed
-                ? 'Confirmation was present, but execution is still waiting on an execution-ready plan.'
-                : 'Review the preview and confirm before execution.';
+                ? '같은 payload의 확인된 미리보기에서만 실행할 수 있습니다.'
+                : '미리보기를 확인한 뒤 1번으로 실행하거나 2번으로 종료하세요.';
         case 'correction_required':
             return 'Submit the required correction and regenerate preview.';
         case 'recheck_required':
@@ -130,7 +130,7 @@ function getNextStepHint(terminalStatus, interactionMode, confirmed) {
         case 'blocked_before_write':
             return 'Execution was blocked before write. Review unsupported or unverified plan content.';
         case 'no_op':
-            return 'No write is needed unless the request changes materially.';
+            return 'snapshot 달라진 내용이 없어 여기서 종료합니다.';
         case 'execution_failed':
             return 'Inspect the execution result before retrying or replaying.';
         case 'executed':
@@ -142,7 +142,7 @@ function getNextStepHint(terminalStatus, interactionMode, confirmed) {
 function getMessage(terminalStatus, resolution, executionResult) {
     switch (terminalStatus) {
         case 'preview_pending_confirmation':
-            return 'Preview generated successfully. Explicit confirmation is still required before execution.';
+            return '미리보기가 준비되었습니다. 1. 이대로 진행 / 2. 종료 중에서 선택하세요.';
         case 'correction_required':
         case 'recheck_required':
         case 'hard_stop':
@@ -152,7 +152,7 @@ function getMessage(terminalStatus, resolution, executionResult) {
         case 'executed':
             return executionResult?.summary || resolution.summary.nextStepSummary;
         case 'no_op':
-            return 'No meaningful write was planned. The request completed without provider writes.';
+            return 'snapshot 달라진 내용이 없어, 샌더를 종료합니다.';
         default:
             return 'API orchestration completed.';
     }

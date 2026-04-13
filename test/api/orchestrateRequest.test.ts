@@ -89,6 +89,12 @@ test('live-equivalent same-date PRE update collapses to no_op when incoming valu
     response.plan?.actions.map((action) => action.actionType),
     ['attach_existing_patient', 'no_op_visit', 'no_op_snapshot'],
   );
+  assert.equal(response.requiresConfirmation, false);
+  assert.equal(response.interaction?.mode, 'terminal');
+  assert.equal(response.interaction?.uiKind, 'no_op');
+  assert.equal(response.interaction?.executeAllowed, false);
+  assert.equal(response.interaction?.choiceMap.length, 0);
+  assert.equal(response.message, 'snapshot 달라진 내용이 없어, 샌더를 종료합니다.');
 });
 
 test('materially changed same-date PRE update keeps update_snapshot active', async () => {
@@ -159,4 +165,26 @@ test('materially changed same-date PRE update keeps update_snapshot active', asy
   assert.equal(response.plan?.readiness, 'execution_ready');
   assert(response.plan?.actions.some((action) => action.actionType === 'update_snapshot'));
   assert(!response.plan?.actions.some((action) => action.actionType === 'update_visit'));
+  assert.equal(response.requiresConfirmation, true);
+  assert.equal(response.interaction?.uiKind, 'preview_confirmation');
+  assert.equal(response.interaction?.executeAllowed, true);
+  assert.deepEqual(
+    response.interaction?.choiceMap.map((choice) => ({
+      number: choice.number,
+      label: choice.label,
+      nextTool: choice.nextTool,
+    })),
+    [
+      {
+        number: 1,
+        label: '이대로 진행',
+        nextTool: 'execute',
+      },
+      {
+        number: 2,
+        label: '종료',
+        nextTool: 'none',
+      },
+    ],
+  );
 });

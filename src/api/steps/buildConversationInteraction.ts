@@ -46,17 +46,16 @@ export function buildConversationInteraction(
         uiKind: 'preview_confirmation',
         userMessage: preview.message,
         assistantQuestion:
-          'Choose one number.\n1. Confirm and execute\n2. Revise the payload and preview again\n3. Cancel',
+          '번호를 선택해주세요.\n1. 이대로 진행\n2. 종료',
         requiredUserInput: buildRequiredUserInput('preview_confirmation_choice', [
-          { number: 1, label: 'Confirm and execute', value: 'confirm_and_execute' },
-          { number: 2, label: 'Revise and preview again', value: 'revise_and_preview_again' },
-          { number: 3, label: 'Cancel', value: 'cancel' },
+          { number: 1, label: '이대로 진행', value: 'confirm_and_execute' },
+          { number: 2, label: '종료', value: 'cancel' },
         ]),
         choiceMap: [
           {
             number: 1,
             meaning: 'confirm_and_execute',
-            label: 'Confirm and execute',
+            label: '이대로 진행',
             nextTool: 'execute',
             requiresPreviewAfterChoice: false,
             requestPatch: {
@@ -69,15 +68,8 @@ export function buildConversationInteraction(
           },
           {
             number: 2,
-            meaning: 'revise_and_preview_again',
-            label: 'Revise and preview again',
-            nextTool: 'preview',
-            requiresPreviewAfterChoice: true,
-          },
-          {
-            number: 3,
             meaning: 'cancel',
-            label: 'Cancel',
+            label: '종료',
             nextTool: 'none',
             requiresPreviewAfterChoice: false,
           },
@@ -301,12 +293,19 @@ export function buildConversationInteraction(
       );
 
     case 'no_op':
-      return buildInformationalInteraction(
-        'no_op',
-        'No meaningful write was planned.',
-        'There is nothing to execute for this payload unless it changes materially.',
-        'no_op',
-      );
+      return {
+        mode: 'terminal',
+        uiKind: 'no_op',
+        userMessage: 'snapshot 달라진 내용이 없어, 샌더를 종료합니다.',
+        assistantQuestion: '',
+        requiredUserInput: null,
+        choiceMap: [],
+        nextStepType: 'no_op',
+        mustPreviewBeforeExecute: true,
+        previewInvalidatedByPayloadChange: true,
+        executeAllowed: false,
+        executeLockedReason: '실행할 변경 사항이 없어 여기서 종료합니다.',
+      };
 
     case 'executed':
       return buildInformationalInteraction(
