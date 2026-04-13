@@ -26,7 +26,12 @@ export function buildPreviewSummary(
   // Extract specific actions
   const patientAction = actions.find((a) => a.entityType === 'patient');
   const visitAction = actions.find((a) => a.entityType === 'visit');
-  const caseAction = actions.find((a) => a.entityType === 'case' && a.actionType !== 'update_case_latest_synthesis');
+  const caseActions = actions.filter(
+    (a) =>
+      a.entityType === 'case' &&
+      a.actionType !== 'update_case_latest_synthesis' &&
+      a.previewVisible,
+  );
   const snapshotActions = actions.filter((a) => a.entityType === 'snapshot');
 
   // Build patient preview
@@ -40,9 +45,10 @@ export function buildPreviewSummary(
     : 'No visit action';
 
   // Build case preview
-  const caseActionText = caseAction
-    ? describeCaseAction(caseAction)
-    : 'No case action';
+  const caseActionText =
+    caseActions.length > 0
+      ? describeCaseActions(caseActions)
+      : describeCaseResolutionFallback(resolution);
 
   // Build snapshot previews
   const snapshotPreviews = snapshotActions
@@ -116,12 +122,30 @@ function describeVisitAction(action: WriteAction): string {
   }
 }
 
-function describeCaseAction(action: WriteAction): string {
-  switch (action.actionType) {
+function describeCaseActions(actions: WriteAction[]): string {
+  if (actions.every((action) => action.actionType === 'create_case')) {
+    const teeth = actions
+      .map((action) => action.target.toothNumber)
+      .filter((tooth): tooth is string => typeof tooth === 'string' && tooth.length > 0);
+
+    if (teeth.length > 1) {
+      return `Create new cases for teeth ${teeth.join(', ')}`;
+    }
+
+    if (teeth.length === 1) {
+      return `Create new case for tooth ${teeth[0]}`;
+    }
+
+    return 'Create new case/episode';
+  }
+
+  const firstAction = actions[0]!;
+
+  switch (firstAction.actionType) {
     case 'create_case':
       return `Create new case/episode`;
     case 'close_case':
-      return `Close case (ID: ${action.target.caseId})`;
+      return `Close case (ID: ${firstAction.target.caseId})`;
     case 'split_case':
       return `Split case into new episode`;
     case 'no_op_case':
@@ -129,4 +153,18 @@ function describeCaseAction(action: WriteAction): string {
     default:
       return 'Unknown case action';
   }
+}
+
+function describeCaseResolutionFallback(
+  resolution: StateResolutionResult,
+): string {
+  if (resolution.caseResolution.status === 'continue_case') {
+    if (resolution.caseResolution.toothNumber) {
+      return `Continue existing case for tooth ${resolution.caseResolution.toothNumber}`;
+    }
+
+    return `Continue existing case`;
+  }
+
+  return 'No case action';
 }

@@ -5,6 +5,8 @@ export async function buildPlan(request, resolution) {
         snapshotBranchIntents: deriveSnapshotBranchIntents(request, resolution),
         snapshotLookups: request.lookupBundle.snapshotLookups,
         hasVisitLevelChanges: hasVisitLevelChanges(request),
+        patientClues: request.contract.patientClues,
+        visitContext: request.contract.visitContext,
     };
     if (request.contract.inputHash) {
         input.inputHash = request.contract.inputHash;

@@ -13,7 +13,7 @@
  */
 import { generateActionId } from '../helpers/idGen.js';
 export function buildVisitActions(input) {
-    const { planId, resolution, patientActionId, hasVisitLevelChanges, hasDependentSnapshotWrites, } = input;
+    const { planId, resolution, patientActionId, hasVisitLevelChanges, hasDependentSnapshotWrites, claimedPatientId, visitDate, visitType, chiefComplaint, painLevel, } = input;
     const actions = [];
     // Determine action type based on resolution status
     let actionType;
@@ -67,7 +67,14 @@ export function buildVisitActions(input) {
         targetMode,
         target,
         payloadIntent: actionType !== 'no_op_visit' ? {
-            intendedChanges: {}, // Provider adapter will fill these
+            intendedChanges: buildVisitIntendedChanges({
+                actionType,
+                claimedPatientId,
+                visitDate,
+                visitType,
+                chiefComplaint,
+                painLevel,
+            }),
             guardedFields: ['visit_id', 'visit_date'],
         } : { intendedChanges: {}, guardedFields: [] },
         dependsOnActionIds: [patientActionId],
@@ -82,4 +89,33 @@ export function buildVisitActions(input) {
         previewVisible: true,
     });
     return actions;
+}
+function buildVisitIntendedChanges(input) {
+    if (input.actionType !== 'create_visit' &&
+        input.actionType !== 'update_visit') {
+        return {};
+    }
+    const intendedChanges = {};
+    if (input.actionType === 'create_visit' &&
+        typeof input.claimedPatientId === 'string' &&
+        input.claimedPatientId.trim()) {
+        intendedChanges.patientId = input.claimedPatientId.trim();
+    }
+    if (input.actionType === 'create_visit' &&
+        typeof input.visitDate === 'string' &&
+        input.visitDate.trim()) {
+        intendedChanges.date = input.visitDate.trim();
+    }
+    if (typeof input.visitType === 'string' && input.visitType.trim()) {
+        intendedChanges.visitType = input.visitType.trim();
+    }
+    if (typeof input.chiefComplaint === 'string' && input.chiefComplaint.trim()) {
+        intendedChanges.chiefComplaint = input.chiefComplaint.trim();
+    }
+    if (input.painLevel !== undefined &&
+        input.painLevel !== null &&
+        String(input.painLevel) !== '') {
+        intendedChanges.painLevel = input.painLevel;
+    }
+    return intendedChanges;
 }

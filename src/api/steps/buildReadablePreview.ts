@@ -31,7 +31,7 @@ const SNAPSHOT_FIELD_LABELS: Record<
     scanFileLink: 'Scan file link',
   },
   DR: {
-    decisionFactor: 'Decision factor',
+    decisionFactors: 'Decision factor',
     remainingCuspThicknessDecision: 'Remaining cusp thickness decision',
     functionalCuspInvolvement: 'Functional cusp involvement',
     crackProgressionRisk: 'Crack progression risk',
@@ -214,7 +214,18 @@ function buildCaseSummary(
     });
   }
 
-  if (caseResolution.toothNumber) {
+  const targetTeeth = caseResolution.targets?.map((target) => target.toothNumber) ?? [];
+
+  if (targetTeeth.length > 1) {
+    representative_fields.push({
+      field: 'Touched teeth',
+      value: targetTeeth.join(', '),
+    });
+    representative_fields.push({
+      field: 'Case target count',
+      value: String(targetTeeth.length),
+    });
+  } else if (caseResolution.toothNumber) {
     representative_fields.push({
       field: 'Tooth number',
       value: caseResolution.toothNumber,

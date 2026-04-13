@@ -38,6 +38,20 @@ export interface CaseResolution {
   toothNumber?: string;
   visitDate?: string;
   relatedCaseIds?: string[];
+  targets?: CaseResolutionTarget[];
+  reasons: string[];
+}
+
+export interface CaseResolutionTarget {
+  status:
+    | 'create_case'
+    | 'continue_case'
+    | 'close_case'
+    | 'split_case';
+  toothNumber: string;
+  resolvedCaseId?: string;
+  visitDate?: string;
+  relatedCaseIds?: string[];
   reasons: string[];
 }
 

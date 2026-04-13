@@ -24,24 +24,49 @@
  */
 import { generateActionId } from '../helpers/idGen.js';
 export function buildCaseActions(input) {
-    const { planId, patientResolution, resolution, visitActionId, snapshotActionIds, hasCaseContent, } = input;
+    const { planId, patientResolution, resolution, visitActionId, snapshotActionIds, hasCaseContent, claimedPatientId, } = input;
     const actions = [];
-    if (resolution.status === 'none' || resolution.status === 'unresolved_case_ambiguity') {
+    const caseTargets = getCaseTargets(resolution);
+    if (resolution.status === 'none' ||
+        resolution.status === 'unresolved_case_ambiguity' ||
+        caseTargets.length === 0) {
         return actions;
     }
-    // Determine primary action type based on resolution status
+    const resolvedOrClaimedPatientId = patientResolution.resolvedPatientId || claimedPatientId || 'NEW';
+    for (const caseTarget of caseTargets) {
+        const primaryAction = buildPrimaryCaseAction({
+            planId,
+            patientId: resolvedOrClaimedPatientId,
+            visitActionId,
+            resolution,
+            target: caseTarget,
+        });
+        if (primaryAction) {
+            actions.push(primaryAction);
+        }
+        const synthesisAction = buildCaseSynthesisAction({
+            planId,
+            patientId: resolvedOrClaimedPatientId,
+            visitActionId,
+            snapshotActionIds,
+            hasCaseContent,
+            target: caseTarget,
+            primaryActionId: primaryAction?.actionId,
+        });
+        if (synthesisAction) {
+            actions.push(synthesisAction);
+        }
+    }
+    return actions;
+}
+function buildPrimaryCaseAction(input) {
+    const { planId, patientId, visitActionId, resolution, target } = input;
     let primaryActionType = null;
     let primaryTargetMode;
-    switch (resolution.status) {
+    switch (target.status) {
         case 'create_case':
             primaryActionType = 'create_case';
             primaryTargetMode = 'create_new';
-            break;
-        case 'continue_case':
-            // Continuing an existing case uses a later synthesis/update action rather
-            // than a separate primary case transition in Stage 5.
-            primaryActionType = null;
-            primaryTargetMode = 'no_op';
             break;
         case 'close_case':
             primaryActionType = 'close_case';
@@ -51,92 +76,121 @@ export function buildCaseActions(input) {
             primaryActionType = 'split_case';
             primaryTargetMode = 'create_new';
             break;
+        case 'continue_case':
         default:
             primaryActionType = null;
             primaryTargetMode = 'no_op';
+            break;
     }
-    let primaryActionId;
-    const caseTargetContext = {
-        ...(resolution.visitDate ? { visitDate: resolution.visitDate } : {}),
-        ...(resolution.toothNumber ? { toothNumber: resolution.toothNumber } : {}),
+    if (!primaryActionType) {
+        return null;
+    }
+    const actionId = generateActionId(planId, 3, primaryActionType, target.toothNumber || target.resolvedCaseId || 'case');
+    const primaryTarget = {
+        patientId,
+        caseId: target.resolvedCaseId || 'NEW',
+        ...(target.visitDate ? { visitDate: target.visitDate } : {}),
+        toothNumber: target.toothNumber,
+        sourceResolutionPath: target.status,
     };
-    if (primaryActionType) {
-        primaryActionId = generateActionId(planId, 3, primaryActionType, 'case');
-        const primaryTarget = {
-            patientId: patientResolution.resolvedPatientId || 'NEW',
-            caseId: resolution.resolvedCaseId || 'NEW',
-            ...caseTargetContext,
-            sourceResolutionPath: resolution.status,
-        };
-        if (resolution.status === 'create_case' && resolution.visitDate) {
-            primaryTarget.episodeStartDate = resolution.visitDate;
-        }
-        if (resolution.relatedCaseIds && resolution.relatedCaseIds.length > 0) {
-            const firstId = resolution.relatedCaseIds[0];
-            if (firstId) {
-                primaryTarget.entityRef = firstId;
-            }
-        }
-        actions.push({
-            actionId: primaryActionId,
-            actionOrder: 3,
-            actionType: primaryActionType,
-            entityType: 'case',
-            targetMode: primaryTargetMode,
-            target: primaryTarget,
-            payloadIntent: {
-                intendedChanges: {}, // Provider adapter will fill these
-                guardedFields: ['case_id', 'date_created'],
-            },
-            dependsOnActionIds: [visitActionId],
-            blockers: [],
-            safety: {
-                duplicateSafe: false,
-                replayEligibleIfFailed: primaryActionType === 'create_case' || primaryActionType === 'split_case',
-                highRiskIdentityAction: primaryActionType === 'create_case' ||
-                    primaryActionType === 'split_case' ||
-                    primaryActionType === 'close_case',
-            },
-            previewVisible: true,
-        });
+    if (target.status === 'create_case' && target.visitDate) {
+        primaryTarget.episodeStartDate = target.visitDate;
     }
-    // Late-stage case synthesis update (after snapshots are written).
-    // Stage 5 keeps this minimal: it is used only for safe continuation on an
-    // already resolved case, while broader latest-synthesis behavior stays for
-    // later activation.
-    if (hasCaseContent &&
-        resolution.status === 'continue_case' &&
-        resolution.resolvedCaseId) {
-        const synthesisActionId = generateActionId(planId, 6, // Late position (after snapshots)
-        'update_case_latest_synthesis', resolution.resolvedCaseId);
-        actions.push({
-            actionId: synthesisActionId,
-            actionOrder: 6,
-            actionType: 'update_case_latest_synthesis',
-            entityType: 'case',
-            targetMode: 'update_existing',
-            target: {
-                patientId: patientResolution.resolvedPatientId || 'NEW',
-                caseId: resolution.resolvedCaseId,
-                ...caseTargetContext,
-                sourceResolutionPath: 'case_synthesis_update',
-            },
-            payloadIntent: {
-                intendedChanges: {}, // Provider adapter will fill these
-                guardedFields: ['case_id'],
-                omittedFieldsByRule: ['date_created', 'case_id'],
-            },
-            dependsOnActionIds: [
-                ...(primaryActionId ? [primaryActionId] : [visitActionId]),
-                ...snapshotActionIds,
-            ],
-            blockers: [],
-            safety: {
-                duplicateSafe: true,
-                replayEligibleIfFailed: true,
-            },
-            previewVisible: false, // Synthesis updates are internal
-        });
+    if (target.relatedCaseIds && target.relatedCaseIds.length > 0) {
+        const firstId = target.relatedCaseIds[0];
+        if (firstId) {
+            primaryTarget.entityRef = firstId;
+        }
     }
-    return actions;
+    else if (resolution.relatedCaseIds && resolution.relatedCaseIds.length > 0) {
+        const firstId = resolution.relatedCaseIds[0];
+        if (firstId) {
+            primaryTarget.entityRef = firstId;
+        }
+    }
+    return {
+        actionId,
+        actionOrder: 3,
+        actionType: primaryActionType,
+        entityType: 'case',
+        targetMode: primaryTargetMode,
+        target: primaryTarget,
+        payloadIntent: {
+            intendedChanges: {},
+            guardedFields: ['case_id', 'date_created'],
+        },
+        dependsOnActionIds: [visitActionId],
+        blockers: [],
+        safety: {
+            duplicateSafe: false,
+            replayEligibleIfFailed: primaryActionType === 'create_case' || primaryActionType === 'split_case',
+            highRiskIdentityAction: primaryActionType === 'create_case' ||
+                primaryActionType === 'split_case' ||
+                primaryActionType === 'close_case',
+        },
+        previewVisible: true,
+    };
+}
+function buildCaseSynthesisAction(input) {
+    const { planId, patientId, visitActionId, snapshotActionIds, hasCaseContent, target, primaryActionId, } = input;
+    if (!hasCaseContent ||
+        target.status !== 'continue_case' ||
+        !target.resolvedCaseId) {
+        return null;
+    }
+    return {
+        actionId: generateActionId(planId, 6, 'update_case_latest_synthesis', target.resolvedCaseId),
+        actionOrder: 6,
+        actionType: 'update_case_latest_synthesis',
+        entityType: 'case',
+        targetMode: 'update_existing',
+        target: {
+            patientId,
+            caseId: target.resolvedCaseId,
+            ...(target.visitDate ? { visitDate: target.visitDate } : {}),
+            toothNumber: target.toothNumber,
+            sourceResolutionPath: 'case_synthesis_update',
+        },
+        payloadIntent: {
+            intendedChanges: {},
+            guardedFields: ['case_id'],
+            omittedFieldsByRule: ['date_created', 'case_id'],
+        },
+        dependsOnActionIds: [
+            ...(primaryActionId ? [primaryActionId] : [visitActionId]),
+            ...snapshotActionIds,
+        ],
+        blockers: [],
+        safety: {
+            duplicateSafe: true,
+            replayEligibleIfFailed: true,
+        },
+        previewVisible: false,
+    };
+}
+function getCaseTargets(resolution) {
+    if (resolution.targets && resolution.targets.length > 0) {
+        return resolution.targets;
+    }
+    if ((resolution.status === 'create_case' ||
+        resolution.status === 'continue_case' ||
+        resolution.status === 'close_case' ||
+        resolution.status === 'split_case') &&
+        resolution.toothNumber) {
+        return [
+            {
+                status: resolution.status,
+                toothNumber: resolution.toothNumber,
+                ...(resolution.resolvedCaseId
+                    ? { resolvedCaseId: resolution.resolvedCaseId }
+                    : {}),
+                ...(resolution.visitDate ? { visitDate: resolution.visitDate } : {}),
+                ...(resolution.relatedCaseIds
+                    ? { relatedCaseIds: resolution.relatedCaseIds }
+                    : {}),
+                reasons: [...resolution.reasons],
+            },
+        ];
+    }
+    return [];
 }

@@ -210,3 +210,245 @@ test('materially changed same-date PRE update keeps update_snapshot active', asy
     },
   ]);
 });
+
+test('new patient new visit with continuityIntent none auto-creates patient, visit, case, and snapshots', async () => {
+  const response = await orchestrateRequest({
+    normalizedContract: {
+      requestId: 'req_new_patient_auto_case_fix',
+      workflowIntent: 'new_patient_new_visit',
+      continuityIntent: 'none',
+      patientClues: {
+        patientId: '916872',
+        newPatientClaim: true,
+        existingPatientClaim: false,
+        birthYear: '',
+        genderHint: '',
+      },
+      visitContext: {
+        visitDate: '2022-10-13',
+        visitType: 'first visit',
+        chiefComplaint: 'cold and hot sensitivity',
+        painLevel: 1,
+        targetVisitId: '',
+        doctorConfirmedCorrection: false,
+      },
+      findingsContext: {
+        toothItems: [
+          {
+            toothNumber: '14',
+            branches: [
+              {
+                branch: 'PRE',
+                payload: {
+                  Symptom: ['cold sensitivity'],
+                },
+              },
+              {
+                branch: 'RAD',
+                payload: {
+                  'Radiograph type': 'bitewing',
+                  'Radiographic caries depth': 'outer dentin',
+                },
+              },
+              {
+                branch: 'OP',
+                payload: {
+                  'Crack confirmed': 'dentin crack',
+                  'Subgingival margin': 'slightly subgingival',
+                },
+              },
+              {
+                branch: 'DR',
+                payload: {
+                  'Decision factor': ['caries depth', 'subgingival margin'],
+                  'Crack progression risk': 'low',
+                  'Occlusal risk': 'normal',
+                },
+              },
+            ],
+          },
+        ],
+        findingsPresent: {
+          pre_op: true,
+          radiographic: true,
+          operative: true,
+          diagnosis: false,
+          treatment_plan: false,
+          doctor_reasoning: true,
+        },
+      },
+      warnings: [],
+    },
+    lookupBundle: {
+      patientLookup: {
+        found: false,
+        patientId: '916872',
+      },
+      sameDateVisitLookup: {
+        found: false,
+      },
+      caseLookups: {},
+    },
+    providerConfig: {
+      kind: 'airtable',
+      mode: 'dryrun',
+    },
+  });
+
+  assert.equal(response.terminalStatus, 'preview_pending_confirmation');
+  assert.equal(response.resolution?.patient.status, 'create_new_patient');
+  assert.equal(response.resolution?.visit.status, 'create_new_visit');
+  assert.equal(response.resolution?.caseResolution.status, 'create_case');
+  assert.deepEqual(response.resolution?.caseResolution.targets, [
+    {
+      status: 'create_case',
+      toothNumber: '14',
+      visitDate: '2022-10-13',
+      reasons: ['continuity_intent_none + new_patient_new_visit_auto_create_case'],
+    },
+  ]);
+  assert.equal(response.plan?.readiness, 'execution_ready');
+  assert(response.plan?.actions.some((action) => action.actionType === 'create_patient'));
+  assert(response.plan?.actions.some((action) => action.actionType === 'create_visit'));
+  assert(response.plan?.actions.some((action) => action.actionType === 'create_case'));
+  assert.equal(
+    response.plan?.actions.filter((action) => action.actionType === 'create_snapshot').length,
+    4,
+  );
+  assert.equal(response.plan?.preview.caseAction, 'Create new case for tooth 14');
+  assert.equal(response.resolution?.summary.caseActionSummary, 'Create new case for tooth 14');
+});
+
+test('new patient new visit with continuityIntent none creates one case per touched tooth', async () => {
+  const response = await orchestrateRequest({
+    normalizedContract: {
+      requestId: 'req_new_patient_multi_tooth_auto_case_fix',
+      workflowIntent: 'new_patient_new_visit',
+      continuityIntent: 'none',
+      patientClues: {
+        patientId: '916873',
+      },
+      visitContext: {
+        visitDate: '2022-10-14',
+        visitType: 'first visit',
+        chiefComplaint: 'multiple teeth sensitive',
+        painLevel: 2,
+      },
+      findingsContext: {
+        toothItems: [
+          {
+            toothNumber: '14',
+            branches: [
+              {
+                branch: 'PRE',
+                payload: {
+                  Symptom: ['cold sensitivity'],
+                },
+              },
+            ],
+          },
+          {
+            toothNumber: '15',
+            branches: [
+              {
+                branch: 'PRE',
+                payload: {
+                  Symptom: ['bite pain'],
+                },
+              },
+            ],
+          },
+        ],
+        findingsPresent: {
+          pre_op: true,
+        },
+      },
+      warnings: [],
+    },
+    lookupBundle: {
+      patientLookup: {
+        found: false,
+        patientId: '916873',
+      },
+      sameDateVisitLookup: {
+        found: false,
+      },
+      caseLookups: {},
+    },
+    providerConfig: {
+      kind: 'airtable',
+      mode: 'dryrun',
+    },
+  });
+
+  assert.equal(response.resolution?.patient.status, 'create_new_patient');
+  assert.equal(response.resolution?.caseResolution.status, 'create_case');
+  assert.deepEqual(
+    response.resolution?.caseResolution.targets?.map((target) => target.toothNumber),
+    ['14', '15'],
+  );
+  assert.equal(
+    response.plan?.actions.filter((action) => action.actionType === 'create_case').length,
+    2,
+  );
+  assert.equal(
+    response.plan?.actions.filter((action) => action.entityType === 'snapshot').length,
+    2,
+  );
+  assert.equal(response.plan?.preview.caseAction, 'Create new cases for teeth 14, 15');
+});
+
+test('new patient workflow still blocks on duplicate conflict when an existing patient is found', async () => {
+  const response = await orchestrateRequest({
+    normalizedContract: {
+      requestId: 'req_new_patient_conflict_found',
+      workflowIntent: 'new_patient_new_visit',
+      continuityIntent: 'none',
+      patientClues: {
+        patientId: '916874',
+        newPatientClaim: true,
+      },
+      visitContext: {
+        visitDate: '2022-10-15',
+      },
+      findingsContext: {
+        toothItems: [
+          {
+            toothNumber: '14',
+            branches: [
+              {
+                branch: 'PRE',
+                payload: {
+                  symptom: 'cold sensitivity',
+                },
+              },
+            ],
+          },
+        ],
+      },
+      warnings: [],
+    },
+    lookupBundle: {
+      patientLookup: {
+        found: true,
+        patientId: '916874',
+      },
+      sameDateVisitLookup: {
+        found: false,
+      },
+      caseLookups: {},
+    },
+    providerConfig: {
+      kind: 'airtable',
+      mode: 'dryrun',
+    },
+  });
+
+  assert.equal(response.terminalStatus, 'correction_required');
+  assert.equal(
+    response.resolution?.patient.status,
+    'correction_needed_patient_duplicate_suspicion',
+  );
+  assert.equal(response.plan?.readiness, 'blocked');
+  assert(!response.plan?.actions.some((action) => action.actionType === 'create_patient'));
+});

@@ -183,6 +183,133 @@ export const GC_DUPLICATE_SUSPICION_EXPECTATION = {
     blockReason: 'patient duplicate suspicion requires correction',
 };
 /**
+ * GC_NEW_PATIENT_AUTO_CASE_CREATE
+ * New patient + new visit + continuity none should auto-create a case
+ */
+export const GC_NEW_PATIENT_AUTO_CASE_CREATE = {
+    id: 'GC_NEW_PATIENT_AUTO_CASE_CREATE',
+    title: 'New Patient Auto Case Create',
+    description: 'New patient new visit with continuity none should create patient, visit, case, and snapshots',
+    currentStateLookup: {
+        patientSearch: {
+            found: false,
+            patientId: '916872',
+        },
+        visitSearch: {
+            found: false,
+        },
+    },
+    contractInputSummary: {
+        workflowIntent: 'new_patient_new_visit',
+        continuityIntent: 'none',
+        patientClues: ['patient_id_provided'],
+        visitDate: '2022-10-13',
+        findings: [
+            { tooth: '14', branch: 'PRE' },
+            { tooth: '14', branch: 'RAD' },
+            { tooth: '14', branch: 'OP' },
+            { tooth: '14', branch: 'DR' },
+        ],
+    },
+};
+export const GC_NEW_PATIENT_AUTO_CASE_CREATE_EXPECTATION = {
+    patientResolutionStatus: 'create_new_patient',
+    visitResolutionStatus: 'create_new_visit',
+    caseResolutionStatus: 'create_case',
+    readinessStatus: 'ready_for_write_plan',
+    planReadiness: 'execution_ready',
+    allowedActionTypes: [
+        'create_patient',
+        'create_visit',
+        'create_case',
+        'create_snapshot',
+        'link_visit_to_case',
+        'link_snapshot_to_case',
+    ],
+    shouldExecute: true,
+    executionStatus: 'success',
+    shouldWrite: true,
+};
+/**
+ * GC_NEW_PATIENT_AUTO_CASE_MULTI_TOOTH
+ * New patient + new visit + continuity none should create one case per tooth
+ */
+export const GC_NEW_PATIENT_AUTO_CASE_MULTI_TOOTH = {
+    id: 'GC_NEW_PATIENT_AUTO_CASE_MULTI_TOOTH',
+    title: 'New Patient Auto Case Multi Tooth',
+    description: 'New patient multi-tooth episode should auto-create one case per touched tooth',
+    currentStateLookup: {
+        patientSearch: {
+            found: false,
+            patientId: '916873',
+        },
+        visitSearch: {
+            found: false,
+        },
+    },
+    contractInputSummary: {
+        workflowIntent: 'new_patient_new_visit',
+        continuityIntent: 'none',
+        patientClues: ['patient_id_provided'],
+        visitDate: '2022-10-14',
+        findings: [
+            { tooth: '14', branch: 'PRE' },
+            { tooth: '15', branch: 'PRE' },
+        ],
+    },
+};
+export const GC_NEW_PATIENT_AUTO_CASE_MULTI_TOOTH_EXPECTATION = {
+    patientResolutionStatus: 'create_new_patient',
+    visitResolutionStatus: 'create_new_visit',
+    caseResolutionStatus: 'create_case',
+    readinessStatus: 'ready_for_write_plan',
+    planReadiness: 'execution_ready',
+    allowedActionTypes: [
+        'create_patient',
+        'create_visit',
+        'create_case',
+        'create_snapshot',
+        'link_snapshot_to_case',
+    ],
+    shouldExecute: true,
+    executionStatus: 'success',
+    shouldWrite: true,
+};
+/**
+ * GC_NEW_PATIENT_FOUND_CONFLICT
+ * New patient flow must still protect against existing-patient conflicts
+ */
+export const GC_NEW_PATIENT_FOUND_CONFLICT = {
+    id: 'GC_NEW_PATIENT_FOUND_CONFLICT',
+    title: 'New Patient Found Conflict',
+    description: 'New patient workflow must not blindly create a duplicate when lookup finds an existing patient',
+    currentStateLookup: {
+        patientSearch: {
+            found: true,
+            patientId: '916874',
+        },
+        visitSearch: {
+            found: false,
+        },
+    },
+    contractInputSummary: {
+        workflowIntent: 'new_patient_new_visit',
+        continuityIntent: 'none',
+        patientClues: ['patient_id_provided'],
+        visitDate: '2022-10-15',
+        findings: [{ tooth: '14', branch: 'PRE' }],
+    },
+};
+export const GC_NEW_PATIENT_FOUND_CONFLICT_EXPECTATION = {
+    patientResolutionStatus: 'correction_needed_patient_duplicate_suspicion',
+    readinessStatus: 'blocked_requires_correction',
+    planReadiness: 'blocked',
+    shouldExecute: false,
+    shouldWrite: false,
+    intentionallyBlocked: true,
+    blockReason: 'new patient conflict still requires correction when an existing patient is found',
+};
+/**
  * GC_SAFE_CREATE_CASE
  * Explicit single-tooth create_case on a later-date visit
  * Expected: execution_ready, create_case executes successfully
@@ -1164,6 +1291,9 @@ export const ALL_GOLDEN_CASES = [
     { input: GC_SAME_DATE_CORRECTION_REQUIRED, expectation: GC_SAME_DATE_CORRECTION_REQUIRED_EXPECTATION },
     { input: GC_PATIENT_RECHECK_REQUIRED, expectation: GC_PATIENT_RECHECK_REQUIRED_EXPECTATION },
     { input: GC_DUPLICATE_SUSPICION, expectation: GC_DUPLICATE_SUSPICION_EXPECTATION },
+    { input: GC_NEW_PATIENT_AUTO_CASE_CREATE, expectation: GC_NEW_PATIENT_AUTO_CASE_CREATE_EXPECTATION },
+    { input: GC_NEW_PATIENT_AUTO_CASE_MULTI_TOOTH, expectation: GC_NEW_PATIENT_AUTO_CASE_MULTI_TOOTH_EXPECTATION },
+    { input: GC_NEW_PATIENT_FOUND_CONFLICT, expectation: GC_NEW_PATIENT_FOUND_CONFLICT_EXPECTATION },
     { input: GC_SAFE_CREATE_CASE, expectation: GC_SAFE_CREATE_CASE_EXPECTATION },
     { input: GC_SAFE_CONTINUE_CASE, expectation: GC_SAFE_CONTINUE_CASE_EXPECTATION },
     { input: GC_SAFE_PLAN_CREATE, expectation: GC_SAFE_PLAN_CREATE_EXPECTATION },

@@ -76,11 +76,22 @@ function summarizeVisitAction(visit: VisitResolution): string {
  * Summarize case resolution action
  */
 function summarizeCaseAction(caseRes: CaseResolution): string {
+  const targetTeeth = caseRes.targets?.map((target) => target.toothNumber) ?? [];
+
   switch (caseRes.status) {
     case 'create_case':
+      if (targetTeeth.length > 1) {
+        return `Create new cases for teeth ${targetTeeth.join(', ')}`;
+      }
+      if (targetTeeth.length === 1) {
+        return `Create new case for tooth ${targetTeeth[0]}`;
+      }
       return 'Create new case';
 
     case 'continue_case':
+      if (targetTeeth.length === 1) {
+        return `Continue existing case for tooth ${targetTeeth[0]}: ${caseRes.resolvedCaseId || 'ID pending'}`;
+      }
       return `Continue existing case: ${caseRes.resolvedCaseId || 'ID pending'}`;
 
     case 'close_case':

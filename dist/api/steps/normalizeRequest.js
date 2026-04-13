@@ -10,6 +10,8 @@ export async function normalizeRequest(request) {
         normalized.warnings.push('API orchestration aligned requestId with the outer request envelope.');
     }
     applyInteractionInput(normalized, request);
+    applyWorkflowClaimDefaults(normalized);
+    normalizeFindingsPayloadKeys(normalized);
     const validation = isNormalizedContractValid(normalized);
     if (!validation.valid) {
         throw new Error(`Normalized contract invalid: ${validation.errors
@@ -68,6 +70,21 @@ function applyInteractionInput(contract, request) {
         recheckInput.existingPatientClaim !== undefined) {
         contract.patientClues.existingPatientClaim =
             recheckInput.existingPatientClaim;
+    }
+}
+function applyWorkflowClaimDefaults(contract) {
+    if (contract.workflowIntent !== 'new_patient_new_visit') {
+        return;
+    }
+    if (contract.patientClues.newPatientClaim === undefined &&
+        contract.patientClues.existingPatientClaim !== true) {
+        contract.patientClues.newPatientClaim = true;
+        contract.patientClues.existingPatientClaim = false;
+        return;
+    }
+    if (contract.patientClues.newPatientClaim === true &&
+        contract.patientClues.existingPatientClaim === undefined) {
+        contract.patientClues.existingPatientClaim = false;
     }
 }
 function applyInteractionLookupPatch(lookupBundle, request) {
@@ -177,6 +194,33 @@ function cloneLookupBundle(lookupBundle) {
     }
     return cloned;
 }
+function normalizeFindingsPayloadKeys(contract) {
+    for (const toothItem of contract.findingsContext.toothItems) {
+        for (const branch of toothItem.branches) {
+            branch.payload = normalizeBranchPayload(branch.branch, branch.payload ?? {});
+        }
+    }
+}
+function normalizeBranchPayload(branch, payload) {
+    const fieldMap = BRANCH_FIELD_KEY_MAP[branch];
+    if (!fieldMap) {
+        return { ...payload };
+    }
+    const normalized = { ...payload };
+    for (const [rawKey, canonicalKey] of Object.entries(fieldMap)) {
+        if (!(rawKey in payload) || canonicalKey in normalized) {
+            continue;
+        }
+        normalized[canonicalKey] = normalizeBranchPayloadValue(branch, canonicalKey, payload[rawKey]);
+    }
+    return normalized;
+}
+function normalizeBranchPayloadValue(branch, field, value) {
+    if (branch === 'PRE' && field === 'symptom' && Array.isArray(value)) {
+        return value.length === 1 ? value[0] : value;
+    }
+    return value;
+}
 function normalizeSnapshotLookupCurrentValues(lookupBundle) {
     if (!lookupBundle.snapshotLookups) {
         return;
@@ -227,3 +271,58 @@ function mapSnapshotRawFieldsToCurrentValues(branch, rawFields) {
             return {};
     }
 }
+const BRANCH_FIELD_KEY_MAP = {
+    PRE: {
+        Symptom: 'symptom',
+        'Symptom reproducible': 'symptomReproducible',
+        'Visible crack': 'visibleCrack',
+        'Crack detection method': 'crackDetectionMethod',
+    },
+    PLAN: {
+        'Pulp therapy': 'pulpTherapy',
+        'Restoration design': 'restorationDesign',
+        'Restoration material': 'restorationMaterial',
+        'Implant placement': 'implantPlacement',
+        'Scan file link': 'scanFileLink',
+    },
+    DR: {
+        'Decision factor': 'decisionFactors',
+        'Remaining cusp thickness decision': 'remainingCuspThicknessDecision',
+        'Functional cusp involvement': 'functionalCuspInvolvement',
+        'Crack progression risk': 'crackProgressionRisk',
+        'Occlusal risk': 'occlusalRisk',
+        'Reasoning notes': 'reasoningNotes',
+    },
+    DX: {
+        'Structural diagnosis': 'structuralDiagnosis',
+        'Pulp diagnosis': 'pulpDiagnosis',
+        'Crack severity': 'crackSeverity',
+        'Occlusion risk': 'occlusionRisk',
+        Restorability: 'restorability',
+    },
+    RAD: {
+        'Radiograph type': 'radiographType',
+        'Radiographic caries depth': 'radiographicCariesDepth',
+        'Secondary caries': 'secondaryCaries',
+        'Caries location': 'cariesLocation',
+        'Pulp chamber size': 'pulpChamberSize',
+        'Periapical lesion': 'periapicalLesion',
+        'Radiographic fracture sign': 'radiographicFractureSign',
+        'Radiograph link': 'radiographLink',
+    },
+    OP: {
+        'Rubber dam isolation': 'rubberDamIsolation',
+        'Caries depth (actual)': 'cariesDepthActual',
+        'Soft dentin remaining': 'softDentinRemaining',
+        'Crack confirmed': 'crackConfirmed',
+        'Crack location': 'crackLocation',
+        'Remaining cusp thickness (mm)': 'remainingCuspThicknessMm',
+        'Subgingival margin': 'subgingivalMargin',
+        'Deep marginal elevation': 'deepMarginalElevation',
+        'IDS/resin coating': 'idsResinCoating',
+        'Resin core build up type': 'resinCoreBuildUpType',
+        'Occlusal loading test': 'occlusalLoadingTest',
+        'Loading test result': 'loadingTestResult',
+        'Intraoral photo link': 'intraoralPhotoLink',
+    },
+};

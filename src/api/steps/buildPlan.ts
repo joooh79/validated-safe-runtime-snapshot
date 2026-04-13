@@ -16,6 +16,8 @@ export async function buildPlan(
     snapshotBranchIntents: deriveSnapshotBranchIntents(request, resolution),
     snapshotLookups: request.lookupBundle.snapshotLookups,
     hasVisitLevelChanges: hasVisitLevelChanges(request),
+    patientClues: request.contract.patientClues,
+    visitContext: request.contract.visitContext,
   };
 
   if (request.contract.inputHash) {

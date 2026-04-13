@@ -59,8 +59,12 @@ export function buildSnapshotActions(input) {
             visitId: visitResolution.resolvedVisitId || 'NEW',
             sourceResolutionPath: `snapshot_${branch}_${visitResolution.status}`,
         };
+        const caseTarget = getCaseTargetForTooth(caseResolution, toothNumber);
         if (toothNumber) {
             target.toothNumber = toothNumber;
+        }
+        else if (caseTarget?.toothNumber) {
+            target.toothNumber = caseTarget.toothNumber;
         }
         else if (caseResolution.toothNumber) {
             target.toothNumber = caseResolution.toothNumber;
@@ -68,7 +72,10 @@ export function buildSnapshotActions(input) {
         else {
             target.toothNumber = 'all'; // Canon-confirm-required outside the single-tooth path
         }
-        if (caseResolution.status === 'create_case' ||
+        if (caseTarget) {
+            target.caseId = caseTarget.resolvedCaseId || 'NEW';
+        }
+        else if (caseResolution.status === 'create_case' ||
             caseResolution.status === 'continue_case') {
             target.caseId = caseResolution.resolvedCaseId || 'NEW';
         }
@@ -130,6 +137,28 @@ export function buildSnapshotActions(input) {
         });
     }
     return actions;
+}
+function getCaseTargetForTooth(caseResolution, toothNumber) {
+    if (!toothNumber) {
+        return undefined;
+    }
+    if (caseResolution.targets && caseResolution.targets.length > 0) {
+        return caseResolution.targets.find((target) => target.toothNumber === toothNumber);
+    }
+    if (caseResolution.toothNumber === toothNumber &&
+        (caseResolution.status === 'create_case' ||
+            caseResolution.status === 'continue_case')) {
+        return {
+            status: caseResolution.status,
+            toothNumber,
+            ...(caseResolution.resolvedCaseId
+                ? { resolvedCaseId: caseResolution.resolvedCaseId }
+                : {}),
+            ...(caseResolution.visitDate ? { visitDate: caseResolution.visitDate } : {}),
+            reasons: [...caseResolution.reasons],
+        };
+    }
+    return undefined;
 }
 function getExplicitSnapshotRecordRef(snapshotLookups, branch, toothNumber) {
     if (!snapshotLookups || !toothNumber || toothNumber === 'all') {

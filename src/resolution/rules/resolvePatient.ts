@@ -19,9 +19,14 @@ export function resolvePatient(
 ): PatientResolution {
   const reasons: string[] = [];
   const clues = contract.patientClues;
+  const isExplicitExistingPatient =
+    clues.existingPatientClaim === true && clues.newPatientClaim !== true;
+  const isNewPatientWorkflow =
+    clues.newPatientClaim === true ||
+    contract.workflowIntent === 'new_patient_new_visit';
 
   // Case 1: Explicit existing patient claim
-  if (clues.existingPatientClaim) {
+  if (isExplicitExistingPatient) {
     if (lookup.found && lookup.patientId) {
       reasons.push('existing_patient_claim + patient_found');
       return {
@@ -44,7 +49,7 @@ export function resolvePatient(
   }
 
   // Case 2: Explicit new patient claim
-  if (clues.newPatientClaim) {
+  if (isNewPatientWorkflow) {
     // Check for duplicate suspicion
     if (lookup.duplicateSuspicion || (lookup.candidateIds && lookup.candidateIds.length > 0)) {
       reasons.push('new_patient_claim + duplicate_suspicion');
@@ -52,10 +57,21 @@ export function resolvePatient(
         status: 'correction_needed_patient_duplicate_suspicion',
         reasons,
       };
-      if (lookup.candidateIds) {
+      if (lookup.candidateIds && lookup.candidateIds.length > 0) {
         result.candidatePatientIds = lookup.candidateIds;
       }
       return result;
+    }
+
+    if (lookup.found && lookup.patientId) {
+      reasons.push('new_patient_claim + existing_patient_found');
+      return {
+        status: 'correction_needed_patient_duplicate_suspicion',
+        candidatePatientIds: [
+          ...new Set([lookup.patientId, ...(lookup.candidateIds ?? [])]),
+        ],
+        reasons,
+      };
     }
 
     // Safe to create new patient

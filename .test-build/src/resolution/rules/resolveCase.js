@@ -14,8 +14,11 @@ export function resolveCase(contract, visitResolution, lookups) {
     const findings = contract.findingsContext;
     const toothItems = findings.toothItems ?? [];
     const visitDate = contract.visitContext.visitDate;
-    const firstTooth = toothItems[0]?.toothNumber;
-    const hasSingleTooth = toothItems.length === 1 && Boolean(firstTooth);
+    const touchedTeeth = [...new Set(toothItems
+            .map((item) => item.toothNumber)
+            .filter((tooth) => typeof tooth === 'string' && tooth.length > 0))];
+    const firstTooth = touchedTeeth[0];
+    const hasSingleTooth = touchedTeeth.length === 1 && Boolean(firstTooth);
     const caseContext = (toothNumber) => ({
         ...(toothNumber ? { toothNumber } : {}),
         ...(visitDate ? { visitDate } : {}),
@@ -39,8 +42,7 @@ export function resolveCase(contract, visitResolution, lookups) {
         };
     }
     // If creating new visit, determine case behavior
-    if (visitResolution.status === 'create_new_visit' ||
-        visitResolution.status === 'hard_stop_same_date_keep_new_visit_claim') {
+    if (visitResolution.status === 'create_new_visit') {
         // Explicit continuity intent
         if (continuityIntent === 'continue_case') {
             reasons.push('continuity_intent_continue_case');
@@ -56,12 +58,10 @@ export function resolveCase(contract, visitResolution, lookups) {
             if (lookups.caseLookups[firstTooth]) {
                 const caseInfo = lookups.caseLookups[firstTooth];
                 if (caseInfo.found && caseInfo.caseId) {
-                    return {
-                        status: 'continue_case',
+                    const target = createCaseTarget('continue_case', firstTooth, visitDate, reasons, {
                         resolvedCaseId: caseInfo.caseId,
-                        ...caseContext(firstTooth),
-                        reasons,
-                    };
+                    });
+                    return finalizeCaseResolution('continue_case', [target], reasons);
                 }
             }
             // Case not found but intent is to continue => ambiguity
@@ -82,11 +82,7 @@ export function resolveCase(contract, visitResolution, lookups) {
                     reasons,
                 };
             }
-            return {
-                status: 'create_case',
-                ...caseContext(firstTooth),
-                reasons,
-            };
+            return finalizeCaseResolution('create_case', [createCaseTarget('create_case', firstTooth, visitDate, reasons)], reasons);
         }
         if (continuityIntent === 'split_case') {
             reasons.push('continuity_intent_split_case');
@@ -118,12 +114,10 @@ export function resolveCase(contract, visitResolution, lookups) {
             if (lookups.caseLookups[firstTooth]) {
                 const caseInfo = lookups.caseLookups[firstTooth];
                 if (caseInfo.found && caseInfo.caseId) {
-                    return {
-                        status: 'close_case',
+                    const target = createCaseTarget('close_case', firstTooth, visitDate, reasons, {
                         resolvedCaseId: caseInfo.caseId,
-                        ...caseContext(firstTooth),
-                        reasons,
-                    };
+                    });
+                    return finalizeCaseResolution('close_case', [target], reasons);
                 }
             }
             reasons.push('close_case_intent_but_case_not_found');
@@ -139,15 +133,21 @@ export function resolveCase(contract, visitResolution, lookups) {
             const caseInfo = lookups.caseLookups[firstTooth];
             if (caseInfo && caseInfo.found && caseInfo.caseId) {
                 reasons.push('single_tooth_findings_infer_continue_case');
-                return {
-                    status: 'continue_case',
+                const target = createCaseTarget('continue_case', firstTooth, visitDate, reasons, {
                     resolvedCaseId: caseInfo.caseId,
-                    ...caseContext(firstTooth),
-                    reasons,
-                };
+                });
+                return finalizeCaseResolution('continue_case', [target], reasons);
             }
         }
-        // Safe-slice default: do not infer new case creation without explicit continuity intent
+        if (continuityIntent === 'none' &&
+            contract.workflowIntent === 'new_patient_new_visit' &&
+            visitDate &&
+            touchedTeeth.length > 0) {
+            reasons.push('continuity_intent_none + new_patient_new_visit_auto_create_case');
+            const targets = touchedTeeth.map((toothNumber) => createCaseTarget('create_case', toothNumber, visitDate, reasons));
+            return finalizeCaseResolution('create_case', targets, reasons);
+        }
+        // Safe-slice default outside the new-patient auto-create path.
         reasons.push('no_explicit_case_intent_safe_slice_none');
         return {
             status: 'none',
@@ -158,6 +158,29 @@ export function resolveCase(contract, visitResolution, lookups) {
     reasons.push('visit_status_requires_blocking_case_resolution');
     return {
         status: 'none',
+        reasons,
+    };
+}
+function createCaseTarget(status, toothNumber, visitDate, reasons, overrides = {}) {
+    return {
+        status,
+        toothNumber,
+        ...(visitDate ? { visitDate } : {}),
+        reasons: [...reasons],
+        ...overrides,
+    };
+}
+function finalizeCaseResolution(status, targets, reasons) {
+    const firstTarget = targets[0];
+    return {
+        status,
+        ...(firstTarget?.resolvedCaseId ? { resolvedCaseId: firstTarget.resolvedCaseId } : {}),
+        ...(targets.length === 1 && firstTarget?.toothNumber
+            ? { toothNumber: firstTarget.toothNumber }
+            : {}),
+        ...(firstTarget?.visitDate ? { visitDate: firstTarget.visitDate } : {}),
+        ...(firstTarget?.relatedCaseIds ? { relatedCaseIds: firstTarget.relatedCaseIds } : {}),
+        targets,
         reasons,
     };
 }

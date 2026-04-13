@@ -29,8 +29,9 @@
  */
 
 import type { StateResolutionResult } from '../types/resolution.js';
-import type { WritePlan } from '../types/write-plan.js';
+import type { WriteAction, WritePlan } from '../types/write-plan.js';
 import type { SnapshotBranch } from '../types/core.js';
+import type { PatientClues, VisitContext } from '../types/contract.js';
 import type { CurrentStateLookupBundle } from '../resolution/index.js';
 import { buildPatientActions } from './rules/buildPatientActions.js';
 import { buildVisitActions } from './rules/buildVisitActions.js';
@@ -63,6 +64,8 @@ export interface BuildWritePlanInput {
    * Same-date snapshot-only updates should not fabricate a visit update.
    */
   hasVisitLevelChanges?: boolean;
+  patientClues?: PatientClues;
+  visitContext?: VisitContext;
 }
 
 /**
@@ -77,6 +80,8 @@ export async function buildWritePlan(input: BuildWritePlanInput): Promise<WriteP
     inputHash,
     snapshotLookups,
     hasVisitLevelChanges,
+    patientClues,
+    visitContext,
   } = input;
 
   // Generate plan ID (deterministic based on request)
@@ -95,6 +100,10 @@ export async function buildWritePlan(input: BuildWritePlanInput): Promise<WriteP
     planId,
     resolution: resolution.patient,
     hasPatientContent: false,
+    claimedPatientId: patientClues?.patientId,
+    birthYear: patientClues?.birthYear,
+    genderHint: patientClues?.genderHint,
+    firstVisitDate: visitContext?.visitDate,
   });
 
   if (patientActions.length === 0) {
@@ -110,6 +119,11 @@ export async function buildWritePlan(input: BuildWritePlanInput): Promise<WriteP
       hasVisitLevelChanges ??
       resolution.visit.status !== 'update_existing_visit_same_date',
     hasDependentSnapshotWrites: hasSnapshotWrites || hasSnapshotContent,
+    claimedPatientId: patientClues?.patientId,
+    visitDate: visitContext?.visitDate,
+    visitType: visitContext?.visitType,
+    chiefComplaint: visitContext?.chiefComplaint,
+    painLevel: visitContext?.painLevel,
   });
 
   if (visitActions.length === 0) {
@@ -125,6 +139,7 @@ export async function buildWritePlan(input: BuildWritePlanInput): Promise<WriteP
     snapshotActionIds: [], // Will be filled after snapshot actions
     hasCaseContent:
       hasSnapshotContent && resolution.caseResolution.status !== 'none',
+    claimedPatientId: patientClues?.patientId,
   });
 
   // Build snapshot actions
@@ -148,6 +163,7 @@ export async function buildWritePlan(input: BuildWritePlanInput): Promise<WriteP
     snapshotActionIds,
     hasCaseContent:
       hasSnapshotContent && resolution.caseResolution.status !== 'none',
+    claimedPatientId: patientClues?.patientId,
   });
 
   // Step 5: Build link actions
@@ -161,8 +177,7 @@ export async function buildWritePlan(input: BuildWritePlanInput): Promise<WriteP
     snapshotActions,
     // Stage 7E activates only the minimal PRE/PLAN/DR/DX/RAD/OP + Case-aware link subset.
     includeExplicitLinks:
-      (resolution.caseResolution.status === 'create_case' ||
-        resolution.caseResolution.status === 'continue_case') &&
+      hasLinkableCaseTargets(resolution) &&
       branchIntents.every(
         (intent) =>
           !intent.hasContent ||
@@ -172,9 +187,13 @@ export async function buildWritePlan(input: BuildWritePlanInput): Promise<WriteP
           intent.branch === 'DX' ||
           intent.branch === 'RAD' ||
           intent.branch === 'OP',
-      ) &&
-      Boolean(resolution.caseResolution.toothNumber),
+      ),
   };
+
+  const caseActionIdsByTooth = buildCaseActionIdsByTooth(updatedCaseActions);
+  if (Object.keys(caseActionIdsByTooth).length > 0) {
+    linkActionInput.caseActionIdsByTooth = caseActionIdsByTooth;
+  }
 
   if (updatedCaseActions[0]?.actionId) {
     linkActionInput.caseActionId = updatedCaseActions[0].actionId;
@@ -222,6 +241,37 @@ export async function buildWritePlan(input: BuildWritePlanInput): Promise<WriteP
   };
 
   return writePlan;
+}
+
+function buildCaseActionIdsByTooth(
+  actions: WriteAction[],
+): Record<string, string> {
+  return Object.fromEntries(
+    actions.flatMap((action) =>
+      action.entityType === 'case' &&
+      action.actionType === 'create_case' &&
+      action.target.toothNumber
+        ? [[action.target.toothNumber, action.actionId] as const]
+        : [],
+    ),
+  );
+}
+
+function hasLinkableCaseTargets(
+  resolution: StateResolutionResult,
+): boolean {
+  if (resolution.caseResolution.targets && resolution.caseResolution.targets.length > 0) {
+    return resolution.caseResolution.targets.some(
+      (target) =>
+        target.status === 'create_case' || target.status === 'continue_case',
+    );
+  }
+
+  return (
+    (resolution.caseResolution.status === 'create_case' ||
+      resolution.caseResolution.status === 'continue_case') &&
+    Boolean(resolution.caseResolution.toothNumber)
+  );
 }
 
 /**

@@ -28,25 +28,25 @@
  */
 import { generateActionId } from '../helpers/idGen.js';
 export function buildLinkActions(input) {
-    const { planId, patientResolution, visitResolution, caseResolution, visitActionId, caseActionId, snapshotActions, includeExplicitLinks = false, } = input;
+    const { planId, patientResolution, visitResolution, caseResolution, visitActionId, caseActionId, caseActionIdsByTooth, snapshotActions, includeExplicitLinks = false, } = input;
     const actions = [];
     let linkOrder = 5;
     if (!includeExplicitLinks) {
         return actions;
     }
-    const supportsMinimalCaseLinks = (caseResolution.status === 'create_case' || caseResolution.status === 'continue_case') &&
-        Boolean(caseResolution.toothNumber);
+    const caseTargets = getLinkableCaseTargets(caseResolution);
+    const supportsMinimalCaseLinks = caseTargets.length > 0;
     if (!supportsMinimalCaseLinks) {
         return actions;
     }
-    const caseTargetContext = {
-        ...(caseResolution.toothNumber ? { toothNumber: caseResolution.toothNumber } : {}),
-    };
     // Link 1: Visit to Case
-    {
+    if (caseTargets.length === 1) {
+        const caseTarget = caseTargets[0];
         const linkId = generateActionId(planId, linkOrder, 'link_visit_to_case', 'v2c');
-        const dependsOnActionIds = caseActionId
-            ? [visitActionId, caseActionId]
+        const linkedCaseActionId = (caseTarget.toothNumber && caseActionIdsByTooth?.[caseTarget.toothNumber]) ||
+            caseActionId;
+        const dependsOnActionIds = linkedCaseActionId
+            ? [visitActionId, linkedCaseActionId]
             : [visitActionId];
         actions.push({
             actionId: linkId,
@@ -57,8 +57,8 @@ export function buildLinkActions(input) {
             target: {
                 patientId: patientResolution.resolvedPatientId || 'NEW',
                 visitId: visitResolution.resolvedVisitId || 'NEW',
-                caseId: caseResolution.resolvedCaseId || 'NEW',
-                ...caseTargetContext,
+                caseId: caseTarget.resolvedCaseId || 'NEW',
+                toothNumber: caseTarget.toothNumber,
                 sourceResolutionPath: 'visit_to_case_link',
             },
             payloadIntent: {
@@ -90,6 +90,13 @@ export function buildLinkActions(input) {
             snapshotAction.actionType === 'update_snapshot'));
     if (caseLinkedSnapshotActions.length > 0) {
         for (const snapshotAction of caseLinkedSnapshotActions) {
+            const toothNumber = snapshotAction.target.toothNumber;
+            const matchingCaseTarget = toothNumber
+                ? caseTargets.find((target) => target.toothNumber === toothNumber)
+                : undefined;
+            if (!matchingCaseTarget) {
+                continue;
+            }
             const linkId = generateActionId(planId, linkOrder, 'link_snapshot_to_case', `s2c_${linkOrder}`);
             actions.push({
                 actionId: linkId,
@@ -99,8 +106,8 @@ export function buildLinkActions(input) {
                 targetMode: 'update_existing',
                 target: {
                     patientId: patientResolution.resolvedPatientId || 'NEW',
-                    caseId: caseResolution.resolvedCaseId || 'NEW',
-                    ...caseTargetContext,
+                    caseId: matchingCaseTarget.resolvedCaseId || 'NEW',
+                    toothNumber: matchingCaseTarget.toothNumber,
                     ...(snapshotAction.target.branch ? { branch: snapshotAction.target.branch } : {}),
                     sourceResolutionPath: 'snapshot_to_case_link',
                 },
@@ -111,8 +118,12 @@ export function buildLinkActions(input) {
                         'relationship_source_snapshot_identity',
                     ],
                 },
-                dependsOnActionIds: caseActionId
-                    ? [caseActionId, snapshotAction.actionId]
+                dependsOnActionIds: matchingCaseTarget.toothNumber &&
+                    caseActionIdsByTooth?.[matchingCaseTarget.toothNumber]
+                    ? [
+                        caseActionIdsByTooth[matchingCaseTarget.toothNumber],
+                        snapshotAction.actionId,
+                    ]
                     : [snapshotAction.actionId],
                 blockers: [],
                 safety: {
@@ -125,4 +136,26 @@ export function buildLinkActions(input) {
         }
     }
     return actions;
+}
+function getLinkableCaseTargets(caseResolution) {
+    const rawTargets = caseResolution.targets && caseResolution.targets.length > 0
+        ? caseResolution.targets
+        : caseResolution.toothNumber &&
+            (caseResolution.status === 'create_case' ||
+                caseResolution.status === 'continue_case')
+            ? [
+                {
+                    status: caseResolution.status,
+                    toothNumber: caseResolution.toothNumber,
+                    ...(caseResolution.resolvedCaseId
+                        ? { resolvedCaseId: caseResolution.resolvedCaseId }
+                        : {}),
+                    ...(caseResolution.visitDate
+                        ? { visitDate: caseResolution.visitDate }
+                        : {}),
+                    reasons: [...caseResolution.reasons],
+                },
+            ]
+            : [];
+    return rawTargets.filter((target) => target.status === 'create_case' || target.status === 'continue_case');
 }

@@ -21,12 +21,24 @@ export interface BuildPatientActionsInput {
   planId: string;
   resolution: PatientResolution;
   hasPatientContent: boolean;
+  claimedPatientId?: string | undefined;
+  birthYear?: string | number | undefined;
+  genderHint?: string | undefined;
+  firstVisitDate?: string | undefined;
 }
 
 export function buildPatientActions(
   input: BuildPatientActionsInput,
 ): WriteAction[] {
-  const { planId, resolution, hasPatientContent } = input;
+  const {
+    planId,
+    resolution,
+    hasPatientContent,
+    claimedPatientId,
+    birthYear,
+    genderHint,
+    firstVisitDate,
+  } = input;
 
   const actions: WriteAction[] = [];
 
@@ -74,11 +86,16 @@ export function buildPatientActions(
     entityType: 'patient',
     targetMode,
     target: {
-      patientId: resolution.resolvedPatientId || 'NEW',
+      patientId: resolution.resolvedPatientId || claimedPatientId || 'NEW',
       sourceResolutionPath: resolution.status,
     },
     payloadIntent: actionType !== 'no_op_patient' ? {
-      intendedChanges: {}, // Provider adapter will fill these
+      intendedChanges: buildPatientIntendedChanges({
+        actionType,
+        birthYear,
+        genderHint,
+        firstVisitDate,
+      }),
       guardedFields: ['patient_id', 'date_created'],
     } : { intendedChanges: {}, guardedFields: [] },
     dependsOnActionIds: [],
@@ -93,4 +110,34 @@ export function buildPatientActions(
   });
 
   return actions;
+}
+
+function buildPatientIntendedChanges(input: {
+  actionType: WriteAction['actionType'];
+  birthYear?: string | number | undefined;
+  genderHint?: string | undefined;
+  firstVisitDate?: string | undefined;
+}): Record<string, unknown> {
+  if (
+    input.actionType !== 'create_patient' &&
+    input.actionType !== 'update_patient'
+  ) {
+    return {};
+  }
+
+  const intendedChanges: Record<string, unknown> = {};
+
+  if (input.birthYear !== undefined && input.birthYear !== '') {
+    intendedChanges.birthYear = input.birthYear;
+  }
+
+  if (typeof input.genderHint === 'string' && input.genderHint.trim()) {
+    intendedChanges.gender = input.genderHint.trim();
+  }
+
+  if (typeof input.firstVisitDate === 'string' && input.firstVisitDate.trim()) {
+    intendedChanges.firstVisitDate = input.firstVisitDate.trim();
+  }
+
+  return intendedChanges;
 }

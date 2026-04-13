@@ -28,8 +28,9 @@ export async function runGoldenCase(input, expectation, lookupBundle, provider) 
         // Stage 1: Resolution
         const resolutionAssertions = [];
         let resolution = null;
+        let contract = null;
         try {
-            const contract = createContractFromScenario(input);
+            contract = createContractFromScenario(input);
             resolution = await resolveState(contract, scenarioLookupBundle);
             if (expectation.patientResolutionStatus || expectation.visitResolutionStatus) {
                 resolutionAssertions.push(assertResolutionStatus(resolution, expectation.patientResolutionStatus, expectation.visitResolutionStatus, expectation.caseResolutionStatus));
@@ -55,12 +56,14 @@ export async function runGoldenCase(input, expectation, lookupBundle, provider) 
         // Stage 2: Write Plan
         const planAssertions = [];
         let plan = null;
-        if (resolution) {
+        if (resolution && contract) {
             try {
                 plan = await buildWritePlan({
                     resolution,
                     snapshotBranchIntents: createSnapshotBranchIntentsFromScenario(input),
                     snapshotLookups: scenarioLookupBundle.snapshotLookups,
+                    patientClues: contract.patientClues,
+                    visitContext: contract.visitContext,
                 });
                 if (expectation.planReadiness) {
                     planAssertions.push(assertPlanReadiness(plan, expectation.planReadiness));
