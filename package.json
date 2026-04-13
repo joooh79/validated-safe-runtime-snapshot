@@ -9,11 +9,14 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit -p tsconfig.json",
+    "build:test": "tsc -p tsconfig.test.json",
     "build:validation": "tsc -p tsconfig.validation.json",
     "prevalidate:golden": "npm run build:validation",
     "validate:golden": "node .validation-build/src/validation/cli.js",
     "preapi:examples": "npm run build:validation",
     "api:examples": "node .validation-build/src/api/__fixtures__/cli.js",
+    "pretest": "npm run build:test",
+    "test": "node --test .test-build/test/server.test.js .test-build/test/auth/verifyProxyRequest.test.js",
     "start": "node dist/server.js"
   },
   "devDependencies": {

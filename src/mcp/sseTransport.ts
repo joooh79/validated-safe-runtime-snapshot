@@ -1,10 +1,5 @@
-/**
- * Minimal legacy MCP SSE transport for a single active client session.
- * It exposes initialize, tools/list, and tools/call over SSE + POST /message.
- */
-
-import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import type { McpSessionManager } from './sessionManager.js';
 
 export type JsonRpcId = string | number | null;
 
@@ -26,12 +21,6 @@ interface JsonRpcResponse {
   };
 }
 
-interface JsonRpcNotification {
-  jsonrpc: '2.0';
-  method: string;
-  params?: unknown;
-}
-
 interface McpToolDefinition {
   name: 'preview' | 'execute';
   description: string;
@@ -46,13 +35,6 @@ interface McpToolDefinition {
   };
 }
 
-interface McpSseSession {
-  id: string;
-  response: ServerResponse;
-  initialized: boolean;
-  heartbeat: NodeJS.Timeout;
-}
-
 export interface McpToolCallInput {
   toolName: 'preview' | 'execute';
   payload: unknown;
@@ -62,16 +44,20 @@ export interface McpSseTransportConfig {
   serverName: string;
   serverVersion: string;
   protocolVersion: string;
+  messageEndpointPath: string;
+  sessionManager: McpSessionManager;
   handleToolCall(input: McpToolCallInput): Promise<unknown>;
+  logEvent?: (
+    event: string,
+    fields: Record<string, unknown>,
+  ) => void;
 }
-
-const HEARTBEAT_INTERVAL_MS = 15000;
 
 const TOOL_DEFINITIONS: McpToolDefinition[] = [
   {
     name: 'preview',
     description:
-      'Send a request payload to the /preview endpoint. Use this to preview what would happen without final execution.',
+      'Send a request payload to the preview endpoint. Use this to preview what would happen without final execution.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -85,7 +71,7 @@ const TOOL_DEFINITIONS: McpToolDefinition[] = [
   {
     name: 'execute',
     description:
-      'Send a request payload to the /execute endpoint. Execution depends on confirmation rules.',
+      'Send a request payload to the execute endpoint. Execution requires explicit confirmation in the payload.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -99,15 +85,10 @@ const TOOL_DEFINITIONS: McpToolDefinition[] = [
 ];
 
 export function createMcpSseTransport(config: McpSseTransportConfig) {
-  let activeSession: McpSseSession | null = null;
-
   function handleSseConnection(
-    request: IncomingMessage,
+    _request: IncomingMessage,
     response: ServerResponse,
   ): void {
-    closeActiveSession();
-
-    const sessionId = randomUUID();
     response.writeHead(200, {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
@@ -116,20 +97,13 @@ export function createMcpSseTransport(config: McpSseTransportConfig) {
     });
     response.flushHeaders?.();
 
-    const heartbeat = setInterval(() => {
-      if (!response.writableEnded) {
-        response.write(': keep-alive\n\n');
-      }
-    }, HEARTBEAT_INTERVAL_MS);
+    const session = config.sessionManager.createSession(response);
 
-    activeSession = {
-      id: sessionId,
+    writeSseEvent(
       response,
-      initialized: false,
-      heartbeat,
-    };
-
-    writeSseEvent(response, 'endpoint', `/message?sessionId=${encodeURIComponent(sessionId)}`);
+      'endpoint',
+      `${config.messageEndpointPath}?sessionId=${encodeURIComponent(session.id)}`,
+    );
     writeSseEvent(response, 'initialize', {
       protocolVersion: config.protocolVersion,
       capabilities: {
@@ -143,13 +117,6 @@ export function createMcpSseTransport(config: McpSseTransportConfig) {
       },
       tools: TOOL_DEFINITIONS,
     });
-
-    request.on('close', () => {
-      if (activeSession?.id === sessionId) {
-        clearInterval(heartbeat);
-        activeSession = null;
-      }
-    });
   }
 
   async function handleMessage(
@@ -157,19 +124,26 @@ export function createMcpSseTransport(config: McpSseTransportConfig) {
     response: ServerResponse,
     payload: unknown,
   ): Promise<void> {
-    if (!activeSession || activeSession.response.writableEnded) {
-      respondJson(response, 503, {
+    const sessionId = getSessionIdFromRequest(request);
+    if (!sessionId) {
+      respondJson(response, 400, {
         ok: false,
-        error: 'No active SSE client is connected.',
+        error: {
+          code: 'mcp_session_required',
+          message: 'sessionId query parameter is required.',
+        },
       });
       return;
     }
 
-    const sessionId = getSessionIdFromRequest(request);
-    if (sessionId && sessionId !== activeSession.id) {
+    const session = config.sessionManager.touchSession(sessionId);
+    if (!session || session.response.writableEnded) {
       respondJson(response, 404, {
         ok: false,
-        error: 'MCP session not found.',
+        error: {
+          code: 'mcp_session_not_found',
+          message: 'MCP session not found.',
+        },
       });
       return;
     }
@@ -177,25 +151,33 @@ export function createMcpSseTransport(config: McpSseTransportConfig) {
     if (!isJsonRpcRequest(payload)) {
       respondJson(response, 400, {
         ok: false,
-        error: 'POST /message requires a JSON-RPC 2.0 object.',
+        error: {
+          code: 'invalid_json_rpc',
+          message: 'POST message requires a JSON-RPC 2.0 object.',
+        },
       });
       return;
     }
 
-    const responseMessage = await dispatchMessage(payload, activeSession);
-    if (responseMessage) {
-      writeSseEvent(activeSession.response, 'message', responseMessage);
+    config.logEvent?.('mcp_method_dispatch', {
+      sessionId,
+      method: payload.method,
+    });
+
+    const responseMessage = await dispatchMessage(payload, sessionId);
+    if (responseMessage && !session.response.writableEnded) {
+      writeSseEvent(session.response, 'message', responseMessage);
     }
 
     respondJson(response, 202, {
       ok: true,
-      sessionId: activeSession.id,
+      sessionId,
     });
   }
 
   async function dispatchMessage(
     message: JsonRpcRequest,
-    session: McpSseSession,
+    sessionId: string,
   ): Promise<JsonRpcResponse | null> {
     if (message.method === 'initialize') {
       if (message.id === undefined) {
@@ -221,7 +203,7 @@ export function createMcpSseTransport(config: McpSseTransportConfig) {
     }
 
     if (message.method === 'notifications/initialized') {
-      session.initialized = true;
+      config.sessionManager.markInitialized(sessionId);
       return null;
     }
 
@@ -259,6 +241,7 @@ export function createMcpSseTransport(config: McpSseTransportConfig) {
       try {
         const toolCall = parseToolCall(message);
         const result = await config.handleToolCall(toolCall);
+
         return {
           jsonrpc: '2.0',
           id: message.id,
@@ -286,6 +269,7 @@ export function createMcpSseTransport(config: McpSseTransportConfig) {
           toolName: message.method,
           payload: extractDirectPayload(message.params),
         });
+
         return {
           jsonrpc: '2.0',
           id: message.id,
@@ -310,18 +294,6 @@ export function createMcpSseTransport(config: McpSseTransportConfig) {
     return buildErrorResponse(message.id, -32601, `Method not found: ${message.method}`);
   }
 
-  function closeActiveSession(): void {
-    if (!activeSession) {
-      return;
-    }
-
-    clearInterval(activeSession.heartbeat);
-    if (!activeSession.response.writableEnded) {
-      activeSession.response.end();
-    }
-    activeSession = null;
-  }
-
   return {
     handleSseConnection,
     handleMessage,
@@ -333,8 +305,7 @@ function writeSseEvent(
   event: string,
   data: string | Record<string, unknown> | JsonRpcResponse,
 ): void {
-  const serialized =
-    typeof data === 'string' ? data : JSON.stringify(data);
+  const serialized = typeof data === 'string' ? data : JSON.stringify(data);
 
   response.write(`event: ${event}\n`);
   for (const line of serialized.split('\n')) {
@@ -359,11 +330,7 @@ function getSessionIdFromRequest(request: IncomingMessage): string | null {
 }
 
 function isJsonRpcRequest(value: unknown): value is JsonRpcRequest {
-  return (
-    isRecord(value) &&
-    value.jsonrpc === '2.0' &&
-    typeof value.method === 'string'
-  );
+  return isRecord(value) && value.jsonrpc === '2.0' && typeof value.method === 'string';
 }
 
 function parseToolCall(message: JsonRpcRequest): McpToolCallInput {
@@ -396,9 +363,7 @@ function extractDirectPayload(params: unknown): unknown {
 }
 
 function buildToolResult(result: unknown): Record<string, unknown> {
-  const structuredContent = isRecord(result)
-    ? result
-    : { value: result };
+  const structuredContent = isRecord(result) ? result : { value: result };
 
   return {
     content: [

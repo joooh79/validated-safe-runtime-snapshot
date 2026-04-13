@@ -164,24 +164,72 @@ npm start
 
 The server binds to `0.0.0.0` and listens on `process.env.PORT` with a default local fallback of `10000`.
 
+## Deployment Topology
+
+The hardened runtime target is:
+
+`Client -> Worker proxy -> Node MCP backend`
+
+Boundary rules:
+
+- the Worker handles external authentication, public routing, and proxy signing
+- the long-lived MCP session lives only on the Node backend
+- the Node backend keeps SSE and `/message` transport state in memory per session
+- the Node backend trusts only signed internal proxy traffic on MCP and execution-sensitive routes
+- the HTTP layer stays thin and continues forwarding JSON into `orchestrateRequest`
+
 ## HTTP Service
 
-This repository now includes a minimal Node web service entrypoint at `src/server.ts`.
+This repository includes a Node 20 web service entrypoint at `src/server.ts`.
 
-Available endpoints:
+Public backend routes:
 
 - `GET /`
 - `GET /health`
-- `POST /preview`
-- `POST /execute`
+- `GET /ready`
+
+Internal proxied routes:
+
+- `GET /internal/mcp/sse`
+- `POST /internal/mcp/message`
+- `POST /internal/preview`
+- `POST /internal/execute`
 
 Transport boundary notes:
 
-- the HTTP layer stays thin and forwards JSON into `orchestrateRequest`
 - preview-first remains mandatory
-- `POST /preview` always returns preview-oriented orchestration output and never performs final execution
-- `POST /execute` uses the same orchestration path and only executes when the request body includes explicit confirmation through `interactionInput.confirmation.confirmed: true`
+- `POST /internal/preview` always forces `interactionInput.confirmation.confirmed` to `false`
+- `POST /internal/execute` rejects requests unless `interactionInput.confirmation.confirmed === true` is explicitly present in the payload
+- MCP `execute` follows the same rule and is not auto-confirmed by tool name alone
 - HTTP requests should send `normalizedContract` JSON; `contractInput` is not supported over HTTP unless an in-process parser is wired separately
+
+## Proxy Auth Headers
+
+When proxy auth is enabled, the Worker must sign every internal request with:
+
+- `x-proxy-timestamp`: unix timestamp in milliseconds
+- `x-proxy-signature`: `sha256=<hex hmac>`
+
+Signature payload format:
+
+```text
+<HTTP_METHOD_UPPERCASE>
+<PATH_WITH_QUERY>
+<TIMESTAMP_MS>
+<SHA256_HEX_OF_RAW_BODY>
+```
+
+Verification rules:
+
+- missing headers -> `401`
+- stale timestamp outside `PROXY_MAX_SKEW_MS` -> `401`
+- invalid HMAC signature -> `403`
+
+Example signed target strings:
+
+- `GET /internal/mcp/sse`
+- `POST /internal/mcp/message?sessionId=<sessionId>`
+- `POST /internal/execute`
 
 ## Render Deployment
 
@@ -204,12 +252,49 @@ Optional environment variables:
   - default behavior: if omitted and Airtable secrets are absent, the service defaults to dry-run
 - `AIRTABLE_BASE_ID`
 - `AIRTABLE_API_TOKEN`
+- `TRUST_PROXY_AUTH`
+  - allowed values: `true`, `false`
+  - default: `true`
+- `PROXY_SHARED_SECRET`
+  - required when `TRUST_PROXY_AUTH=true`
+- `PROXY_MAX_SKEW_MS`
+  - positive integer milliseconds
+  - default: `300000`
+- `MCP_SESSION_TTL_MS`
+  - positive integer milliseconds
+  - default: `600000`
+- `MCP_HEARTBEAT_INTERVAL_MS`
+  - positive integer milliseconds
+  - default: `15000`
+  - must be smaller than `MCP_SESSION_TTL_MS`
 
 Provider defaulting:
 
 - if both Airtable secrets are present, the server defaults to the real Airtable provider
 - if not, the server stays in dry-run mode unless `AIRTABLE_MODE=mock` is set
 - `PORT` is managed by Render for the web service and should not be hardcoded
+
+Security defaulting:
+
+- the backend fails closed on invalid proxy-auth configuration
+- production deployment should keep `TRUST_PROXY_AUTH=true`
+- local direct-to-Node development can set `TRUST_PROXY_AUTH=false` to bypass signature checks intentionally
+
+## Local Development Flow
+
+Direct local Node development:
+
+1. `npm install`
+2. `npm run build`
+3. Start with `TRUST_PROXY_AUTH=false npm start`
+4. Send local requests to `/internal/preview`, `/internal/execute`, `/internal/mcp/sse`, and `/internal/mcp/message`
+
+Proxy-like local development:
+
+1. set `PROXY_SHARED_SECRET`
+2. keep `TRUST_PROXY_AUTH=true`
+3. have the local proxy sign the internal request path, timestamp, and raw body exactly as described above
+4. keep SSE on the Node backend and proxy the stream through unchanged
 
 ## What To Read First
 
