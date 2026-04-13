@@ -138,7 +138,13 @@ export function createMcpSessionManager(
   }
 
   function getPreviewState(sessionId: string): McpSessionPreviewState | null {
-    return sessions.get(sessionId)?.previewState ?? null;
+    const session = sessions.get(sessionId);
+    if (!session) {
+      return null;
+    }
+
+    session.lastSeenAt = now();
+    return session.previewState;
   }
 
   function clearPreviewState(sessionId: string): boolean {

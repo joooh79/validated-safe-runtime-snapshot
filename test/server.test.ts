@@ -302,6 +302,130 @@ test('MCP execute is allowed after preview for the same payload in the same sess
   );
 });
 
+test('same payload plus confirmation bit only is allowed on the direct preview/execute MCP methods', async () => {
+  const { transport } = createTransportHarness();
+  const sseResponse = new MockResponse();
+
+  transport.handleSseConnection(
+    new MockRequest('GET', SERVER_ROUTES.internalMcpSse) as any,
+    sseResponse as any,
+  );
+
+  const sessionId = extractSessionId(sseResponse.body);
+
+  const previewAck = new MockResponse();
+  await transport.handleMessage(
+    new MockRequest(
+      'POST',
+      `${SERVER_ROUTES.internalMcpMessage}?sessionId=${sessionId}`,
+    ) as any,
+    previewAck as any,
+    {
+      jsonrpc: '2.0',
+      id: 7,
+      method: 'preview',
+      params: apiFixture_safeNewVisitPreviewRequest,
+    },
+  );
+
+  const executeAck = new MockResponse();
+  await transport.handleMessage(
+    new MockRequest(
+      'POST',
+      `${SERVER_ROUTES.internalMcpMessage}?sessionId=${sessionId}`,
+    ) as any,
+    executeAck as any,
+    {
+      jsonrpc: '2.0',
+      id: 8,
+      method: 'execute',
+      params: {
+        ...apiFixture_safeNewVisitPreviewRequest,
+        interactionInput: {
+          confirmation: {
+            confirmed: true,
+          },
+        },
+      },
+    },
+  );
+
+  const executeMessage = extractLastSseEvent(sseResponse.body, 'message');
+  assert.equal(executeMessage.id, 8);
+  assert.equal(executeMessage.result.isError, false);
+  assert.equal(executeMessage.result.structuredContent.terminalStatus, 'executed');
+});
+
+test('MCP execute stays blocked when the payload changed beyond the confirmation bit', async () => {
+  const { transport } = createTransportHarness();
+  const sseResponse = new MockResponse();
+
+  transport.handleSseConnection(
+    new MockRequest('GET', SERVER_ROUTES.internalMcpSse) as any,
+    sseResponse as any,
+  );
+
+  const sessionId = extractSessionId(sseResponse.body);
+
+  const previewAck = new MockResponse();
+  await transport.handleMessage(
+    new MockRequest(
+      'POST',
+      `${SERVER_ROUTES.internalMcpMessage}?sessionId=${sessionId}`,
+    ) as any,
+    previewAck as any,
+    {
+      jsonrpc: '2.0',
+      id: 9,
+      method: 'tools/call',
+      params: {
+        name: 'preview',
+        arguments: {
+          payload: apiFixture_safeNewVisitPreviewRequest,
+        },
+      },
+    },
+  );
+
+  const executeAck = new MockResponse();
+  await transport.handleMessage(
+    new MockRequest(
+      'POST',
+      `${SERVER_ROUTES.internalMcpMessage}?sessionId=${sessionId}`,
+    ) as any,
+    executeAck as any,
+    {
+      jsonrpc: '2.0',
+      id: 10,
+      method: 'tools/call',
+      params: {
+        name: 'execute',
+        arguments: {
+          payload: {
+            ...apiFixture_safeNewVisitPreviewRequest,
+            metadata: {
+              testCase: 'material_payload_change',
+            },
+            interactionInput: {
+              confirmation: {
+                confirmed: true,
+              },
+            },
+          },
+        },
+      },
+    },
+  );
+
+  const executeMessage = extractLastSseEvent(sseResponse.body, 'message');
+  assert.equal(executeMessage.id, 10);
+  assert.equal(executeMessage.result.isError, true);
+  assert.match(
+    executeMessage.result.structuredContent.message,
+    /The payload changed after preview/,
+  );
+});
+
 function createTransportHarness() {
   const sessionManager = createMcpSessionManager({
     sessionTtlMs: 5_000,

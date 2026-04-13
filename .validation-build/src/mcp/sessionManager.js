@@ -66,7 +66,12 @@ export function createMcpSessionManager(config) {
         return true;
     }
     function getPreviewState(sessionId) {
-        return sessions.get(sessionId)?.previewState ?? null;
+        const session = sessions.get(sessionId);
+        if (!session) {
+            return null;
+        }
+        session.lastSeenAt = now();
+        return session.previewState;
     }
     function clearPreviewState(sessionId) {
         const session = sessions.get(sessionId);

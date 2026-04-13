@@ -202,16 +202,14 @@ export function createMcpSseTransport(config) {
     }
     async function dispatchToolCall(sessionId, toolCall) {
         if (toolCall.toolName === 'execute') {
-            const executeFingerprint = buildPayloadFingerprint(toolCall.payload);
-            const previewState = config.sessionManager.getPreviewState(sessionId);
-            if (!previewState ||
-                previewState.payloadFingerprint !== executeFingerprint ||
-                !previewState.executeAllowed) {
-                return buildPreviewFirstRequiredResult(!previewState
-                    ? 'Preview is required before execute in this MCP session.'
-                    : previewState.payloadFingerprint !== executeFingerprint
-                        ? 'The payload changed after preview. Preview again before execute.'
-                        : 'Preview exists, but execution is not allowed from the current preview state.');
+            const executeGate = evaluateExecuteGate(config.sessionManager.getPreviewState(sessionId), toolCall.payload);
+            config.logEvent?.('mcp_execute_gate_checked', {
+                sessionId,
+                allowed: executeGate.ok,
+                reason: executeGate.reason,
+            });
+            if (!executeGate.ok) {
+                return buildPreviewFirstRequiredResult(executeGate.message);
             }
         }
         const result = await config.handleToolCall(toolCall);
@@ -223,9 +221,18 @@ export function createMcpSseTransport(config) {
                 terminalStatus: getTerminalStatusFromResult(result),
                 updatedAt: Date.now(),
             });
+            config.logEvent?.('mcp_preview_proof_recorded', {
+                sessionId,
+                executeAllowed,
+                terminalStatus: getTerminalStatusFromResult(result),
+            });
         }
-        else if (toolCall.toolName === 'execute') {
+        else if (toolCall.toolName === 'execute' && shouldConsumePreviewProof(result)) {
             config.sessionManager.clearPreviewState(sessionId);
+            config.logEvent?.('mcp_preview_proof_consumed', {
+                sessionId,
+                terminalStatus: getTerminalStatusFromResult(result),
+            });
         }
         return result;
     }
@@ -377,6 +384,37 @@ function buildPreviewFirstRequiredResult(message) {
         },
     };
 }
+function evaluateExecuteGate(previewState, payload) {
+    if (!previewState) {
+        return {
+            ok: false,
+            reason: 'missing_preview',
+            message: 'Preview is required before execute in this MCP session.',
+        };
+    }
+    if (!payloadMatchesPreviewFingerprint(previewState.payloadFingerprint, payload)) {
+        return {
+            ok: false,
+            reason: 'payload_changed',
+            message: 'The payload changed after preview. Preview again before execute.',
+        };
+    }
+    if (!previewState.executeAllowed) {
+        return {
+            ok: false,
+            reason: 'preview_not_execute_ready',
+            message: 'Preview exists, but execution is not allowed from the current preview state.',
+        };
+    }
+    return {
+        ok: true,
+        reason: 'preview_not_execute_ready',
+        message: '',
+    };
+}
+function payloadMatchesPreviewFingerprint(previewFingerprint, payload) {
+    return previewFingerprint === buildPayloadFingerprint(payload);
+}
 function buildPayloadFingerprint(payload) {
     return JSON.stringify(sortDeep(sanitizePayloadForPreview(payload)));
 }
@@ -424,6 +462,11 @@ function getTerminalStatusFromResult(result) {
         return result.terminalStatus;
     }
     return 'unknown';
+}
+function shouldConsumePreviewProof(result) {
+    return (isRecord(result) &&
+        result.success === true &&
+        (result.terminalStatus === 'executed' || result.didWrite === true));
 }
 function buildConversationText(structuredContent) {
     const sections = [];
