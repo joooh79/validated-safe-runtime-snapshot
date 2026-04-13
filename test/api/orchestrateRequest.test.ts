@@ -95,6 +95,15 @@ test('live-equivalent same-date PRE update collapses to no_op when incoming valu
   assert.equal(response.interaction?.executeAllowed, false);
   assert.equal(response.interaction?.choiceMap.length, 0);
   assert.equal(response.message, 'snapshot 달라진 내용이 없어, 샌더를 종료합니다.');
+  assert.deepEqual(response.readablePreview?.findings[0]?.field_changes, [
+    {
+      field: 'Symptom',
+      status_label: '변경 없음',
+      before: 'chewing pain',
+      incoming: 'chewing pain',
+      after: 'chewing pain',
+    },
+  ]);
 });
 
 test('materially changed same-date PRE update keeps update_snapshot active', async () => {
@@ -168,6 +177,10 @@ test('materially changed same-date PRE update keeps update_snapshot active', asy
   assert.equal(response.requiresConfirmation, true);
   assert.equal(response.interaction?.uiKind, 'preview_confirmation');
   assert.equal(response.interaction?.executeAllowed, true);
+  assert.equal(
+    response.interaction?.userMessage,
+    '기존 방문 업데이트 preview입니다. 이 내용대로 적용할까요?',
+  );
   assert.deepEqual(
     response.interaction?.choiceMap.map((choice) => ({
       number: choice.number,
@@ -187,4 +200,13 @@ test('materially changed same-date PRE update keeps update_snapshot active', asy
       },
     ],
   );
+  assert.deepEqual(response.readablePreview?.findings[0]?.field_changes, [
+    {
+      field: 'Symptom',
+      status_label: '변경 예정',
+      before: 'chewing pain',
+      incoming: 'bite pain',
+      after: 'bite pain',
+    },
+  ]);
 });

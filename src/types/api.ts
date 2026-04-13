@@ -232,6 +232,15 @@ export interface ApiReadableSummaryBlock {
   value: string;
   details: string[];
   representative_fields: ApiRepresentativeFieldView[];
+  field_changes?: ApiReadableFieldChangeView[];
+}
+
+export interface ApiReadableFieldChangeView {
+  field: string;
+  status_label: '변경 없음' | '변경 예정' | '현재 확인불가' | '신규 행 생성 예정';
+  before: string;
+  incoming: string;
+  after: string;
 }
 
 export interface ApiReadableFindingSummary {
@@ -242,6 +251,7 @@ export interface ApiReadableFindingSummary {
   label: string;
   value: string;
   representative_fields: ApiRepresentativeFieldView[];
+  field_changes: ApiReadableFieldChangeView[];
   entered_field_count: number;
 }
 

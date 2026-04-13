@@ -13,8 +13,8 @@ export function buildConversationInteraction(input) {
             return {
                 mode: 'await_user_choice',
                 uiKind: 'preview_confirmation',
-                userMessage: preview.message,
-                assistantQuestion: '번호를 선택해주세요.\n1. 이대로 진행\n2. 종료',
+                userMessage: buildPreviewConfirmationUserMessage(request, preview),
+                assistantQuestion: '숫자만 입력해 주세요.\n1. 이대로 진행\n2. 종료',
                 requiredUserInput: buildRequiredUserInput('preview_confirmation_choice', [
                     { number: 1, label: '이대로 진행', value: 'confirm_and_execute' },
                     { number: 2, label: '종료', value: 'cancel' },
@@ -248,6 +248,12 @@ export function buildConversationInteraction(input) {
         case 'executed':
             return buildInformationalInteraction('executed', 'Execution completed from the confirmed preview.', 'The current payload has already been executed.', 'executed');
     }
+}
+function buildPreviewConfirmationUserMessage(request, preview) {
+    if (request.contract.workflowIntent === 'existing_visit_update') {
+        return '기존 방문 업데이트 preview입니다. 이 내용대로 적용할까요?';
+    }
+    return preview.message;
 }
 function buildRequiredUserInput(field, choices) {
     const requiredInput = {

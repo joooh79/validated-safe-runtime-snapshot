@@ -508,6 +508,31 @@ function buildConversationText(structuredContent) {
                 }
                 const branch = stringifyOptional(finding.branch_code);
                 const tooth = stringifyOptional(finding.tooth_number);
+                const fieldChanges = Array.isArray(finding.field_changes)
+                    ? finding.field_changes
+                        .filter(isRecord)
+                        .map((change) => {
+                        const field = stringifyOptional(change.field);
+                        const status = stringifyOptional(change.status_label);
+                        const before = stringifyOptional(change.before);
+                        const incoming = stringifyOptional(change.incoming);
+                        const after = stringifyOptional(change.after);
+                        if (!field) {
+                            return null;
+                        }
+                        return [
+                            `[finding] ${branch || 'Finding'} tooth ${tooth || '?'} ${field}`,
+                            `- 상태: ${status || '(empty)'}`,
+                            `- 현재값: ${before || '(empty)'}`,
+                            `- 입력값: ${incoming || '(empty)'}`,
+                            `- 적용 후: ${after || '(empty)'}`,
+                        ].join('\n');
+                    })
+                        .filter(Boolean)
+                    : [];
+                if (fieldChanges.length > 0) {
+                    return fieldChanges.join('\n');
+                }
                 const reps = Array.isArray(finding.representative_fields)
                     ? finding.representative_fields
                         .filter(isRecord)
@@ -530,6 +555,10 @@ function buildConversationText(structuredContent) {
         sections.push(`Next step: ${nextStepHint}`);
     }
     if (interaction) {
+        const userMessage = stringifyOptional(interaction.userMessage);
+        if (userMessage && userMessage !== message) {
+            sections.push(userMessage);
+        }
         const assistantQuestion = stringifyOptional(interaction.assistantQuestion);
         if (assistantQuestion) {
             sections.push(assistantQuestion);

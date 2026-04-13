@@ -1,3 +1,5 @@
+const CURRENT_STATE_UNAVAILABLE = '(current-state unavailable)';
+const EMPTY_PLACEHOLDER = '(empty)';
 const SNAPSHOT_FIELD_LABELS = {
     PRE: {
         symptom: 'Symptom',
@@ -202,6 +204,7 @@ function buildFindingSummaries(request, preview, plan) {
             value: matchingPreviewBlock?.value ??
                 `${toFindingAction(action?.actionType)} snapshot for tooth ${item.toothNumber}`,
             representative_fields,
+            field_changes: buildFindingFieldChanges(request, item.toothNumber, branchPayload.branch, branchPayload.payload, action),
             entered_field_count: representative_fields.length,
         };
     }));
@@ -238,9 +241,101 @@ function toFindingAction(actionType) {
             return 'no_op';
     }
 }
-function formatRepresentativeValue(value) {
+function buildFindingFieldChanges(request, toothNumber, branch, payload, action) {
+    const allowedFields = SNAPSHOT_FIELD_LABELS[branch];
+    const snapshotLookup = request.lookupBundle.snapshotLookups?.[branch]?.[toothNumber];
+    return Object.entries(allowedFields).flatMap(([fieldKey, fieldLabel]) => {
+        if (!(fieldKey in payload)) {
+            return [];
+        }
+        const incomingValue = payload[fieldKey];
+        if (incomingValue === undefined ||
+            incomingValue === null ||
+            incomingValue === '' ||
+            (Array.isArray(incomingValue) && incomingValue.length === 0)) {
+            return [];
+        }
+        const beforeValue = resolveFieldBeforeValue(snapshotLookup, action?.actionType, fieldKey);
+        const afterValue = action?.actionType === 'no_op_snapshot'
+            ? beforeValue
+            : formatPreviewValue(incomingValue);
+        return [
+            {
+                field: fieldLabel,
+                status_label: computeFieldStatusLabel(beforeValue, incomingValue, action?.actionType, branch, fieldKey),
+                before: beforeValue,
+                incoming: formatPreviewValue(incomingValue),
+                after: afterValue,
+            },
+        ];
+    });
+}
+function resolveFieldBeforeValue(snapshotLookup, actionType, fieldKey) {
+    if (actionType === 'create_snapshot') {
+        return '(new row)';
+    }
+    if (!snapshotLookup) {
+        return CURRENT_STATE_UNAVAILABLE;
+    }
+    if (!snapshotLookup.found) {
+        return CURRENT_STATE_UNAVAILABLE;
+    }
+    if (!snapshotLookup.currentValues) {
+        return CURRENT_STATE_UNAVAILABLE;
+    }
+    return formatPreviewValue(snapshotLookup.currentValues[fieldKey]);
+}
+function computeFieldStatusLabel(beforeValue, incomingValue, actionType, branch, fieldKey) {
+    if (actionType === 'create_snapshot') {
+        return '신규 행 생성 예정';
+    }
+    if (beforeValue === CURRENT_STATE_UNAVAILABLE) {
+        return '현재 확인불가';
+    }
+    return areComparableSnapshotValuesEqual(branch, fieldKey, beforeValue, incomingValue)
+        ? '변경 없음'
+        : '변경 예정';
+}
+function areComparableSnapshotValuesEqual(branch, fieldKey, beforeValue, incomingValue) {
+    return JSON.stringify(normalizeComparablePreviewValue(branch, fieldKey, beforeValue)) ===
+        JSON.stringify(normalizeComparablePreviewValue(branch, fieldKey, incomingValue));
+}
+function normalizeComparablePreviewValue(branch, fieldKey, value) {
+    if (value === CURRENT_STATE_UNAVAILABLE) {
+        return CURRENT_STATE_UNAVAILABLE;
+    }
+    if (branch === 'PRE' && fieldKey === 'symptom') {
+        return normalizeStringList(value);
+    }
     if (Array.isArray(value)) {
-        return value.map((item) => String(item)).join(', ');
+        return normalizeStringList(value);
+    }
+    if (value === undefined || value === null || value === '') {
+        return '';
+    }
+    if (typeof value === 'number') {
+        return value;
+    }
+    return String(value).trim();
+}
+function normalizeStringList(value) {
+    const values = Array.isArray(value)
+        ? value
+        : value === undefined || value === null || value === ''
+            ? []
+            : [value];
+    return [...new Set(values.map((entry) => String(entry).trim()).filter(Boolean))].sort();
+}
+function formatRepresentativeValue(value) {
+    return formatPreviewValue(value);
+}
+function formatPreviewValue(value) {
+    if (value === undefined || value === null || value === '') {
+        return EMPTY_PLACEHOLDER;
+    }
+    if (Array.isArray(value)) {
+        const normalized = value.map((item) => String(item).trim()).filter(Boolean);
+        return normalized.length > 0 ? normalized.join(', ') : EMPTY_PLACEHOLDER;
     }
     if (typeof value === 'object') {
         return JSON.stringify(value);
