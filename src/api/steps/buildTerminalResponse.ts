@@ -10,6 +10,7 @@ import type { ExecutionResult } from '../../types/execution.js';
 import type { PreviewModel } from '../../types/preview.js';
 import type { StateResolutionResult } from '../../types/resolution.js';
 import type { WritePlan } from '../../types/write-plan.js';
+import { buildReadablePreview } from './buildReadablePreview.js';
 
 export interface BuildTerminalResponseInput {
   request: PreparedApiRequest;
@@ -51,6 +52,7 @@ export function buildTerminalResponse(
     resolutionSummary: resolution.summary,
     plan,
     planSummary: buildPlanSummary(plan),
+    readablePreview: buildReadablePreview(request, preview, plan),
     didWrite: computeDidWrite(executionResult),
     warnings: [...resolution.warnings, ...plan.warnings],
     nextStepHint: getNextStepHint(terminalStatus, interactionMode, request.confirmed),

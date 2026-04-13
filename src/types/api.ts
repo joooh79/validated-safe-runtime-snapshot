@@ -7,6 +7,7 @@ import type { PreviewModel } from './preview.js';
 import type { DirectWriteProvider } from './provider.js';
 import type { CurrentStateLookupBundle } from '../resolution/index.js';
 import type { ContractParser } from '../contract/index.js';
+import type { SnapshotBranch } from './core.js';
 
 /**
  * API Orchestration Layer Types
@@ -221,6 +222,38 @@ export interface ApiPlanSummaryView {
   previewNextStep?: WritePlan['preview']['nextStep'];
 }
 
+export interface ApiRepresentativeFieldView {
+  field: string;
+  value: string;
+}
+
+export interface ApiReadableSummaryBlock {
+  label: string;
+  value: string;
+  details: string[];
+  representative_fields: ApiRepresentativeFieldView[];
+}
+
+export interface ApiReadableFindingSummary {
+  no: number;
+  branch_code: SnapshotBranch;
+  tooth_number: string;
+  action: 'create' | 'update' | 'no_op';
+  label: string;
+  value: string;
+  representative_fields: ApiRepresentativeFieldView[];
+  entered_field_count: number;
+}
+
+export interface ApiReadablePreviewSummary {
+  claim_label: string;
+  patient_summary: ApiReadableSummaryBlock;
+  visit_summary: ApiReadableSummaryBlock;
+  case_summary: ApiReadableSummaryBlock;
+  findings: ApiReadableFindingSummary[];
+  warnings: string[];
+}
+
 export interface ApiOrchestrationRequest {
   requestId?: string;
   normalizedContract?: NormalizedContract;
@@ -256,6 +289,7 @@ export interface ApiOrchestrationResponse {
   resolutionSummary?: StateResolutionResult['summary'];
   plan?: WritePlan;
   planSummary?: ApiPlanSummaryView;
+  readablePreview?: ApiReadablePreviewSummary;
   executionResult?: ExecutionResult;
   didWrite: boolean;
   warnings: string[];

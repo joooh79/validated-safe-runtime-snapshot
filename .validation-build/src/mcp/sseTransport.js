@@ -1,13 +1,7 @@
-/**
- * Minimal legacy MCP SSE transport for a single active client session.
- * It exposes initialize, tools/list, and tools/call over SSE + POST /message.
- */
-import { randomUUID } from 'node:crypto';
-const HEARTBEAT_INTERVAL_MS = 15000;
 const TOOL_DEFINITIONS = [
     {
         name: 'preview',
-        description: 'Send a request payload to the /preview endpoint. Use this to preview what would happen without final execution.',
+        description: 'Send a request payload to the preview endpoint. Use this to preview what would happen without final execution.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -20,7 +14,7 @@ const TOOL_DEFINITIONS = [
     },
     {
         name: 'execute',
-        description: 'Send a request payload to the /execute endpoint. Execution depends on confirmation rules.',
+        description: 'Send a request payload to the execute endpoint. Execution requires explicit confirmation in the payload.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -33,10 +27,7 @@ const TOOL_DEFINITIONS = [
     },
 ];
 export function createMcpSseTransport(config) {
-    let activeSession = null;
-    function handleSseConnection(request, response) {
-        closeActiveSession();
-        const sessionId = randomUUID();
+    function handleSseConnection(_request, response) {
         response.writeHead(200, {
             'Content-Type': 'text/event-stream',
             'Cache-Control': 'no-cache',
@@ -44,18 +35,8 @@ export function createMcpSseTransport(config) {
             'X-Accel-Buffering': 'no',
         });
         response.flushHeaders?.();
-        const heartbeat = setInterval(() => {
-            if (!response.writableEnded) {
-                response.write(': keep-alive\n\n');
-            }
-        }, HEARTBEAT_INTERVAL_MS);
-        activeSession = {
-            id: sessionId,
-            response,
-            initialized: false,
-            heartbeat,
-        };
-        writeSseEvent(response, 'endpoint', `/message?sessionId=${encodeURIComponent(sessionId)}`);
+        const session = config.sessionManager.createSession(response);
+        writeSseEvent(response, 'endpoint', `${config.messageEndpointPath}?sessionId=${encodeURIComponent(session.id)}`);
         writeSseEvent(response, 'initialize', {
             protocolVersion: config.protocolVersion,
             capabilities: {
@@ -69,46 +50,54 @@ export function createMcpSseTransport(config) {
             },
             tools: TOOL_DEFINITIONS,
         });
-        request.on('close', () => {
-            if (activeSession?.id === sessionId) {
-                clearInterval(heartbeat);
-                activeSession = null;
-            }
-        });
     }
     async function handleMessage(request, response, payload) {
-        if (!activeSession || activeSession.response.writableEnded) {
-            respondJson(response, 503, {
+        const sessionId = getSessionIdFromRequest(request);
+        if (!sessionId) {
+            respondJson(response, 400, {
                 ok: false,
-                error: 'No active SSE client is connected.',
+                error: {
+                    code: 'mcp_session_required',
+                    message: 'sessionId query parameter is required.',
+                },
             });
             return;
         }
-        const sessionId = getSessionIdFromRequest(request);
-        if (sessionId && sessionId !== activeSession.id) {
+        const session = config.sessionManager.touchSession(sessionId);
+        if (!session || session.response.writableEnded) {
             respondJson(response, 404, {
                 ok: false,
-                error: 'MCP session not found.',
+                error: {
+                    code: 'mcp_session_not_found',
+                    message: 'MCP session not found.',
+                },
             });
             return;
         }
         if (!isJsonRpcRequest(payload)) {
             respondJson(response, 400, {
                 ok: false,
-                error: 'POST /message requires a JSON-RPC 2.0 object.',
+                error: {
+                    code: 'invalid_json_rpc',
+                    message: 'POST message requires a JSON-RPC 2.0 object.',
+                },
             });
             return;
         }
-        const responseMessage = await dispatchMessage(payload, activeSession);
-        if (responseMessage) {
-            writeSseEvent(activeSession.response, 'message', responseMessage);
+        config.logEvent?.('mcp_method_dispatch', {
+            sessionId,
+            method: payload.method,
+        });
+        const responseMessage = await dispatchMessage(payload, sessionId);
+        if (responseMessage && !session.response.writableEnded) {
+            writeSseEvent(session.response, 'message', responseMessage);
         }
         respondJson(response, 202, {
             ok: true,
-            sessionId: activeSession.id,
+            sessionId,
         });
     }
-    async function dispatchMessage(message, session) {
+    async function dispatchMessage(message, sessionId) {
         if (message.method === 'initialize') {
             if (message.id === undefined) {
                 return buildErrorResponse(null, -32600, 'initialize requires an id.');
@@ -131,7 +120,7 @@ export function createMcpSseTransport(config) {
             };
         }
         if (message.method === 'notifications/initialized') {
-            session.initialized = true;
+            config.sessionManager.markInitialized(sessionId);
             return null;
         }
         if (message.method === 'ping') {
@@ -211,16 +200,6 @@ export function createMcpSseTransport(config) {
         }
         return buildErrorResponse(message.id, -32601, `Method not found: ${message.method}`);
     }
-    function closeActiveSession() {
-        if (!activeSession) {
-            return;
-        }
-        clearInterval(activeSession.heartbeat);
-        if (!activeSession.response.writableEnded) {
-            activeSession.response.end();
-        }
-        activeSession = null;
-    }
     return {
         handleSseConnection,
         handleMessage,
@@ -244,9 +223,7 @@ function getSessionIdFromRequest(request) {
     return url.searchParams.get('sessionId');
 }
 function isJsonRpcRequest(value) {
-    return (isRecord(value) &&
-        value.jsonrpc === '2.0' &&
-        typeof value.method === 'string');
+    return isRecord(value) && value.jsonrpc === '2.0' && typeof value.method === 'string';
 }
 function parseToolCall(message) {
     if (!isRecord(message.params)) {
@@ -272,9 +249,7 @@ function extractDirectPayload(params) {
     return 'payload' in params ? params.payload : params;
 }
 function buildToolResult(result) {
-    const structuredContent = isRecord(result)
-        ? result
-        : { value: result };
+    const structuredContent = isRecord(result) ? result : { value: result };
     return {
         content: [
             {

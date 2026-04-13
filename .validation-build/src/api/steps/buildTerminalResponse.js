@@ -1,3 +1,4 @@
+import { buildReadablePreview } from './buildReadablePreview.js';
 export function buildTerminalResponse(input) {
     const { request, resolution, plan, preview, interactionMode, terminalStatus, executionResult, success = true, } = input;
     const requiresConfirmation = interactionMode === 'preview_confirmation' &&
@@ -14,6 +15,7 @@ export function buildTerminalResponse(input) {
         resolutionSummary: resolution.summary,
         plan,
         planSummary: buildPlanSummary(plan),
+        readablePreview: buildReadablePreview(request, preview, plan),
         didWrite: computeDidWrite(executionResult),
         warnings: [...resolution.warnings, ...plan.warnings],
         nextStepHint: getNextStepHint(terminalStatus, interactionMode, request.confirmed),

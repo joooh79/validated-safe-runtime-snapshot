@@ -187,6 +187,7 @@ Public backend routes:
 - `GET /`
 - `GET /health`
 - `GET /ready`
+- `GET /ui`
 
 Internal proxied routes:
 
@@ -195,13 +196,48 @@ Internal proxied routes:
 - `POST /internal/preview`
 - `POST /internal/execute`
 
+Worker-facing UI routes:
+
+- `GET /ui/api/runtime-info`
+- `GET /ui/api/presets`
+- `POST /ui/api/preview`
+- `POST /ui/api/execute`
+
 Transport boundary notes:
 
 - preview-first remains mandatory
 - `POST /internal/preview` always forces `interactionInput.confirmation.confirmed` to `false`
 - `POST /internal/execute` rejects requests unless `interactionInput.confirmation.confirmed === true` is explicitly present in the payload
 - MCP `execute` follows the same rule and is not auto-confirmed by tool name alone
+- `/ui/api/preview` and `/ui/api/execute` reuse the same preview/execute guardrails for the browser UI
 - HTTP requests should send `normalizedContract` JSON; `contractInput` is not supported over HTTP unless an in-process parser is wired separately
+
+## Browser UI
+
+The repo now includes a minimal browser UI at `GET /ui`.
+
+UI goals:
+
+- paste and edit the current `ApiOrchestrationRequest`
+- preview first, always
+- inspect a readable preview plus raw JSON
+- use numbered choices for confirm/correction/recheck flows
+- patch the working request in memory without manually rewriting JSON for every step
+
+Preview-first enforcement in the UI:
+
+- the working request is sanitized so preview confirmation never counts as a persisted payload edit
+- the UI keeps both the current working request and the last successfully previewed request
+- any material request change makes the preview stale immediately
+- execute stays disabled unless the current preview is still fresh, the runtime returned `preview_pending_confirmation`, and the runtime is `execution_ready`
+- correction and recheck choices patch the working request and then force preview again before execute can unlock
+
+Readable preview behavior:
+
+- preview responses now include `readablePreview`
+- each visible finding summary includes `representative_fields`
+- representative fields are derived only from currently supported branch payload keys and only when meaningful values are present
+- unsupported or unknown payload keys remain visible only in the raw JSON panel
 
 ## Proxy Auth Headers
 
@@ -287,7 +323,8 @@ Direct local Node development:
 1. `npm install`
 2. `npm run build`
 3. Start with `TRUST_PROXY_AUTH=false npm start`
-4. Send local requests to `/internal/preview`, `/internal/execute`, `/internal/mcp/sse`, and `/internal/mcp/message`
+4. Open `http://127.0.0.1:<PORT>/ui`
+5. The browser UI will call `/ui/api/preview` and `/ui/api/execute` directly in local mode
 
 Proxy-like local development:
 

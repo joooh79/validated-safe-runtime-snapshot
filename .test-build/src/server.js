@@ -5,13 +5,21 @@ import { verifyProxyRequest } from './auth/verifyProxyRequest.js';
 import { resolveServerEnv } from './config/env.js';
 import { createMcpSseTransport } from './mcp/sseTransport.js';
 import { createMcpSessionManager } from './mcp/sessionManager.js';
+import { getUiPresets } from './ui/presets.js';
+import { renderUiHtml } from './ui/renderUiHtml.js';
 const HOST = '0.0.0.0';
 const MAX_JSON_BODY_BYTES = 1024 * 1024;
 const JSON_CONTENT_TYPE = 'application/json; charset=utf-8';
+const HTML_CONTENT_TYPE = 'text/html; charset=utf-8';
 export const SERVER_ROUTES = {
     root: '/',
     health: '/health',
     ready: '/ready',
+    ui: '/ui',
+    uiApiRuntimeInfo: '/ui/api/runtime-info',
+    uiApiPresets: '/ui/api/presets',
+    uiApiPreview: '/ui/api/preview',
+    uiApiExecute: '/ui/api/execute',
     internalPreview: '/internal/preview',
     internalExecute: '/internal/execute',
     internalMcpSse: '/internal/mcp/sse',
@@ -127,12 +135,24 @@ async function routeRequest(request, response, context) {
             ok: true,
             service: 'smr-sender-rebuild-clean-package',
             topology: 'Client -> Worker proxy -> Node MCP backend',
-            publicRoutes: [SERVER_ROUTES.root, SERVER_ROUTES.health, SERVER_ROUTES.ready],
+            publicRoutes: [
+                SERVER_ROUTES.root,
+                SERVER_ROUTES.health,
+                SERVER_ROUTES.ready,
+                SERVER_ROUTES.ui,
+            ],
             internalRoutes: [
                 `GET ${SERVER_ROUTES.internalMcpSse}`,
                 `POST ${SERVER_ROUTES.internalMcpMessage}`,
                 `POST ${SERVER_ROUTES.internalPreview}`,
                 `POST ${SERVER_ROUTES.internalExecute}`,
+            ],
+            workerFacingUiRoutes: [
+                `GET ${SERVER_ROUTES.ui}`,
+                `GET ${SERVER_ROUTES.uiApiRuntimeInfo}`,
+                `GET ${SERVER_ROUTES.uiApiPresets}`,
+                `POST ${SERVER_ROUTES.uiApiPreview}`,
+                `POST ${SERVER_ROUTES.uiApiExecute}`,
             ],
             defaultProviderMode: context.config.defaultProviderConfig.mode,
             previewFirst: true,
@@ -147,6 +167,53 @@ async function routeRequest(request, response, context) {
     }
     if (method === 'GET' && url.pathname === SERVER_ROUTES.ready) {
         respondJson(response, 200, { ok: true });
+        return;
+    }
+    if (method === 'GET' && url.pathname === SERVER_ROUTES.ui) {
+        respondHtml(response, 200, renderUiHtml({
+            runtimeInfoPath: SERVER_ROUTES.uiApiRuntimeInfo,
+            presetsPath: SERVER_ROUTES.uiApiPresets,
+            previewPath: SERVER_ROUTES.uiApiPreview,
+            executePath: SERVER_ROUTES.uiApiExecute,
+            healthPath: SERVER_ROUTES.health,
+        }));
+        return;
+    }
+    if (method === 'GET' && url.pathname === SERVER_ROUTES.uiApiRuntimeInfo) {
+        respondJson(response, 200, {
+            ok: true,
+            defaultProviderMode: context.config.defaultProviderConfig.mode,
+            trustProxyAuth: context.config.proxyAuth.trustProxyAuth,
+            topology: 'Client -> Worker proxy -> Node MCP backend',
+            previewFirst: true,
+            uiRoute: SERVER_ROUTES.ui,
+            previewRoute: SERVER_ROUTES.uiApiPreview,
+            executeRoute: SERVER_ROUTES.uiApiExecute,
+        });
+        return;
+    }
+    if (method === 'GET' && url.pathname === SERVER_ROUTES.uiApiPresets) {
+        respondJson(response, 200, {
+            ok: true,
+            presets: getUiPresets(),
+        });
+        return;
+    }
+    if (url.pathname === SERVER_ROUTES.uiApiPreview ||
+        url.pathname === SERVER_ROUTES.uiApiExecute) {
+        if (method !== 'POST') {
+            response.setHeader('Allow', 'POST');
+            throw new HttpError(405, 'method_not_allowed', `Method ${method} not allowed for ${url.pathname}.`);
+        }
+        const rawBody = await readRawBody(request);
+        verifyInternalProxyRequest(request, url, rawBody, context.config);
+        const body = parseJsonBody(rawBody);
+        const orchestrationRequest = buildInternalOrchestrationRequest(url.pathname === SERVER_ROUTES.uiApiPreview
+            ? SERVER_ROUTES.internalPreview
+            : SERVER_ROUTES.internalExecute, body, context.config);
+        const orchestrationResponse = await orchestrateRequest(orchestrationRequest);
+        const statusCode = orchestrationResponse.success ? 200 : 400;
+        respondJson(response, statusCode, orchestrationResponse);
         return;
     }
     if (method === 'GET' && url.pathname === SERVER_ROUTES.internalMcpSse) {
@@ -273,6 +340,11 @@ function respondJson(response, statusCode, payload) {
     response.statusCode = statusCode;
     response.setHeader('Content-Type', JSON_CONTENT_TYPE);
     response.end(JSON.stringify(payload, null, 2));
+}
+function respondHtml(response, statusCode, payload) {
+    response.statusCode = statusCode;
+    response.setHeader('Content-Type', HTML_CONTENT_TYPE);
+    response.end(payload);
 }
 function respondError(response, statusCode, code, message, details) {
     respondJson(response, statusCode, {
