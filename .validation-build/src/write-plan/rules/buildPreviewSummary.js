@@ -53,7 +53,10 @@ export function buildPreviewSummary(resolution, actions, warnings) {
     else if (resolution.readiness === 'blocked_hard_stop') {
         nextStep = 'hard_stop';
     }
-    else if (actions.length === 0 || actions.every((a) => a.actionType.startsWith('no_op'))) {
+    else if (actions.length === 0 ||
+        !actions.some((a) => !a.actionType.startsWith('no_op') &&
+            a.actionType !== 'attach_existing_patient' &&
+            (!a.blockers || a.blockers.length === 0))) {
         nextStep = 'inform_no_op';
     }
     else {

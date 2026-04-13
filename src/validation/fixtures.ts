@@ -275,6 +275,10 @@ export function createLookupBundleFromScenario(input: GoldenCaseInput): CurrentS
         snapshotLookup.recordName = snapshot.recordName;
       }
 
+      if (snapshot.currentValues) {
+        snapshotLookup.currentValues = { ...snapshot.currentValues };
+      }
+
       if (!snapshot.found) {
         snapshotLookup.reason = 'scenario_lookup_snapshot_not_found';
       }
@@ -306,5 +310,6 @@ export function createSnapshotBranchIntentsFromScenario(
       input.contractInputSummary.workflowIntent === 'existing_visit_update',
     isContinuation: false,
     toothNumber: finding.tooth,
+    payload: {},
   }));
 }

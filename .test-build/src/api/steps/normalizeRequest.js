@@ -20,6 +20,7 @@ export async function normalizeRequest(request) {
         normalized.warnings.push(...validation.warnings.map((warning) => `${warning.field}: ${warning.reason}`));
     }
     const lookupBundle = cloneLookupBundle(request.lookupBundle ?? createEmptyLookupBundle());
+    normalizeSnapshotLookupCurrentValues(lookupBundle);
     applyInteractionLookupPatch(lookupBundle, request);
     const prepared = {
         requestId: finalRequestId,
@@ -156,7 +157,12 @@ function cloneLookupBundle(lookupBundle) {
                     branch,
                     Object.fromEntries(Object.entries(records).map(([tooth, record]) => [
                         tooth,
-                        { ...record },
+                        {
+                            ...record,
+                            ...(record.currentValues
+                                ? { currentValues: { ...record.currentValues } }
+                                : {}),
+                        },
                     ])),
                 ],
             ]
@@ -170,4 +176,54 @@ function cloneLookupBundle(lookupBundle) {
         cloned.providerNotes = lookupBundle.providerNotes;
     }
     return cloned;
+}
+function normalizeSnapshotLookupCurrentValues(lookupBundle) {
+    if (!lookupBundle.snapshotLookups) {
+        return;
+    }
+    for (const [branch, records] of Object.entries(lookupBundle.snapshotLookups)) {
+        if (!records) {
+            continue;
+        }
+        for (const record of Object.values(records)) {
+            if (!record) {
+                continue;
+            }
+            if (record.currentValues) {
+                record.currentValues = { ...record.currentValues };
+                continue;
+            }
+            const rawFields = getSnapshotLookupRawFields(record);
+            if (!rawFields) {
+                continue;
+            }
+            const currentValues = mapSnapshotRawFieldsToCurrentValues(branch, rawFields);
+            if (Object.keys(currentValues).length > 0) {
+                record.currentValues = currentValues;
+            }
+        }
+    }
+}
+function getSnapshotLookupRawFields(record) {
+    const fields = record.fields ?? record.fieldValues;
+    if (!fields || typeof fields !== 'object' || Array.isArray(fields)) {
+        return null;
+    }
+    return fields;
+}
+function mapSnapshotRawFieldsToCurrentValues(branch, rawFields) {
+    switch (branch) {
+        case 'PRE': {
+            const currentValues = {};
+            if ('Symptom' in rawFields) {
+                currentValues.symptom = rawFields.Symptom;
+            }
+            if ('Visible crack' in rawFields) {
+                currentValues.visibleCrack = rawFields['Visible crack'];
+            }
+            return currentValues;
+        }
+        default:
+            return {};
+    }
 }

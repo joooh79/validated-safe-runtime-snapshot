@@ -13,14 +13,14 @@
  */
 import { generateActionId } from '../helpers/idGen.js';
 export function buildVisitActions(input) {
-    const { planId, resolution, patientActionId, hasVisitContent } = input;
+    const { planId, resolution, patientActionId, hasVisitLevelChanges, hasDependentSnapshotWrites, } = input;
     const actions = [];
     // Determine action type based on resolution status
     let actionType;
     let targetMode;
     switch (resolution.status) {
         case 'create_new_visit':
-            if (hasVisitContent) {
+            if (hasVisitLevelChanges || hasDependentSnapshotWrites) {
                 actionType = 'create_visit';
                 targetMode = 'create_new';
             }
@@ -30,7 +30,7 @@ export function buildVisitActions(input) {
             }
             break;
         case 'update_existing_visit_same_date':
-            if (hasVisitContent) {
+            if (hasVisitLevelChanges) {
                 actionType = 'update_visit';
                 targetMode = 'update_existing';
             }

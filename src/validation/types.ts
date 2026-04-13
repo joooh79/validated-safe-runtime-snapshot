@@ -68,6 +68,7 @@ export interface GoldenCaseInput {
       recordId?: string;
       visitId?: string;
       recordName?: string;
+      currentValues?: Record<string, unknown>;
     }>;
   };
   contractInputSummary: {

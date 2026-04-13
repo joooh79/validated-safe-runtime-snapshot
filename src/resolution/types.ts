@@ -52,6 +52,7 @@ export interface SnapshotLookupResult {
   toothNumber?: string;
   branch?: SnapshotBranch;
   recordName?: string;
+  currentValues?: Record<string, unknown>;
   reason?: string;
 }
 

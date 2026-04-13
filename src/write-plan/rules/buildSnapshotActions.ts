@@ -28,6 +28,10 @@ import type { SnapshotBranch, WorkflowIntent } from '../../types/core.js';
 import type { WriteAction, ActionTarget } from '../../types/write-plan.js';
 import type { CurrentStateLookupBundle } from '../../resolution/index.js';
 import { generateActionId } from '../helpers/idGen.js';
+import {
+  extractWritableSnapshotIntendedChanges,
+  shouldCollapseSnapshotUpdateToNoOp,
+} from './compareSnapshotPayload.js';
 
 export interface SnapshotBranchIntent {
   branch: SnapshotBranch;
@@ -35,6 +39,7 @@ export interface SnapshotBranchIntent {
   isSameDateCorrection: boolean;
   isContinuation: boolean;
   toothNumber?: string;
+  payload?: Record<string, unknown>;
 }
 
 export interface BuildSnapshotActionsInput {
@@ -64,7 +69,18 @@ export function buildSnapshotActions(
   let snapshotOrder = 4;
 
   for (const branchIntent of branchIntents) {
-    const { branch, hasContent, isSameDateCorrection, isContinuation, toothNumber } = branchIntent;
+    const {
+      branch,
+      hasContent,
+      isSameDateCorrection,
+      isContinuation,
+      toothNumber,
+      payload,
+    } = branchIntent;
+    const intendedChanges = extractWritableSnapshotIntendedChanges(
+      branch,
+      payload ?? {},
+    );
 
     // Skip if no content for this branch
     if (!hasContent) {
@@ -127,6 +143,19 @@ export function buildSnapshotActions(
       if (explicitRecordRef) {
         target.entityRef = explicitRecordRef;
       }
+
+      if (
+        shouldCollapseSnapshotUpdateToNoOp(
+          snapshotLookups,
+          branch,
+          target.toothNumber,
+          intendedChanges,
+        )
+      ) {
+        actionType = 'no_op_snapshot';
+        targetMode = 'no_op';
+        delete target.entityRef;
+      }
     }
 
     actions.push({
@@ -137,7 +166,7 @@ export function buildSnapshotActions(
       targetMode,
       target,
       payloadIntent: actionType !== 'no_op_snapshot' ? {
-        intendedChanges: {}, // Provider adapter maps findings to provider format
+        intendedChanges,
         guardedFields: ['visit_id', 'snapshot_date', branch],
         omittedFieldsByRule:
           actionType === 'update_snapshot' ? ['snapshot_date', 'visit_id'] : [],

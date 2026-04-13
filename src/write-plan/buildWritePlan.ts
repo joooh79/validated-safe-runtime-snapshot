@@ -36,6 +36,7 @@ import { buildPatientActions } from './rules/buildPatientActions.js';
 import { buildVisitActions } from './rules/buildVisitActions.js';
 import { buildCaseActions } from './rules/buildCaseActions.js';
 import { buildSnapshotActions, type SnapshotBranchIntent } from './rules/buildSnapshotActions.js';
+import { snapshotBranchIntentProducesWrite } from './rules/compareSnapshotPayload.js';
 import { buildLinkActions, type BuildLinkActionsInput } from './rules/buildLinkActions.js';
 import { buildPlanWarnings } from './rules/buildPlanWarnings.js';
 import { buildPreviewSummary } from './rules/buildPreviewSummary.js';
@@ -57,6 +58,11 @@ export interface BuildWritePlanInput {
    * lookups. Used conservatively for branch update activation.
    */
   snapshotLookups?: CurrentStateLookupBundle['snapshotLookups'];
+  /**
+   * Optional explicit visit-level change hint from the normalized request.
+   * Same-date snapshot-only updates should not fabricate a visit update.
+   */
+  hasVisitLevelChanges?: boolean;
 }
 
 /**
@@ -65,7 +71,13 @@ export interface BuildWritePlanInput {
  * This is the main entry point for the write-plan engine.
  */
 export async function buildWritePlan(input: BuildWritePlanInput): Promise<WritePlan> {
-  const { resolution, snapshotBranchIntents, inputHash, snapshotLookups } = input;
+  const {
+    resolution,
+    snapshotBranchIntents,
+    inputHash,
+    snapshotLookups,
+    hasVisitLevelChanges,
+  } = input;
 
   // Generate plan ID (deterministic based on request)
   const planId = `plan_${input.resolution.requestId.slice(0, 8)}`;
@@ -74,6 +86,9 @@ export async function buildWritePlan(input: BuildWritePlanInput): Promise<WriteP
     snapshotBranchIntents ||
     inferSnapshotBranchIntents(resolution);
   const hasSnapshotContent = branchIntents.some((intent) => intent.hasContent);
+  const hasSnapshotWrites = branchIntents.some((intent) =>
+    snapshotBranchIntentProducesWrite(intent, snapshotLookups),
+  );
 
   // Step 1: Build patient actions
   const patientActions = buildPatientActions({
@@ -91,7 +106,10 @@ export async function buildWritePlan(input: BuildWritePlanInput): Promise<WriteP
     planId,
     resolution: resolution.visit,
     patientActionId: patientActions[0]!.actionId,
-    hasVisitContent: hasSnapshotContent,
+    hasVisitLevelChanges:
+      hasVisitLevelChanges ??
+      resolution.visit.status !== 'update_existing_visit_same_date',
+    hasDependentSnapshotWrites: hasSnapshotWrites || hasSnapshotContent,
   });
 
   if (visitActions.length === 0) {

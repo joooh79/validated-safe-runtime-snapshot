@@ -23,12 +23,14 @@
  *   widening the multi-tooth model
  */
 import { generateActionId } from '../helpers/idGen.js';
+import { extractWritableSnapshotIntendedChanges, shouldCollapseSnapshotUpdateToNoOp, } from './compareSnapshotPayload.js';
 export function buildSnapshotActions(input) {
     const { planId, visitResolution, caseResolution, workflowIntent, visitActionId, branchIntents, snapshotLookups, } = input;
     const actions = [];
     let snapshotOrder = 4;
     for (const branchIntent of branchIntents) {
-        const { branch, hasContent, isSameDateCorrection, isContinuation, toothNumber } = branchIntent;
+        const { branch, hasContent, isSameDateCorrection, isContinuation, toothNumber, payload, } = branchIntent;
+        const intendedChanges = extractWritableSnapshotIntendedChanges(branch, payload ?? {});
         // Skip if no content for this branch
         if (!hasContent) {
             continue;
@@ -75,6 +77,11 @@ export function buildSnapshotActions(input) {
             if (explicitRecordRef) {
                 target.entityRef = explicitRecordRef;
             }
+            if (shouldCollapseSnapshotUpdateToNoOp(snapshotLookups, branch, target.toothNumber, intendedChanges)) {
+                actionType = 'no_op_snapshot';
+                targetMode = 'no_op';
+                delete target.entityRef;
+            }
         }
         actions.push({
             actionId,
@@ -84,7 +91,7 @@ export function buildSnapshotActions(input) {
             targetMode,
             target,
             payloadIntent: actionType !== 'no_op_snapshot' ? {
-                intendedChanges: {}, // Provider adapter maps findings to provider format
+                intendedChanges,
                 guardedFields: ['visit_id', 'snapshot_date', branch],
                 omittedFieldsByRule: actionType === 'update_snapshot' ? ['snapshot_date', 'visit_id'] : [],
             } : { intendedChanges: {}, guardedFields: [] },

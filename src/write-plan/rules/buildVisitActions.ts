@@ -20,13 +20,20 @@ export interface BuildVisitActionsInput {
   planId: string;
   resolution: VisitResolution;
   patientActionId: string;
-  hasVisitContent: boolean;
+  hasVisitLevelChanges: boolean;
+  hasDependentSnapshotWrites: boolean;
 }
 
 export function buildVisitActions(
   input: BuildVisitActionsInput,
 ): WriteAction[] {
-  const { planId, resolution, patientActionId, hasVisitContent } = input;
+  const {
+    planId,
+    resolution,
+    patientActionId,
+    hasVisitLevelChanges,
+    hasDependentSnapshotWrites,
+  } = input;
 
   const actions: WriteAction[] = [];
 
@@ -36,7 +43,7 @@ export function buildVisitActions(
 
   switch (resolution.status) {
     case 'create_new_visit':
-      if (hasVisitContent) {
+      if (hasVisitLevelChanges || hasDependentSnapshotWrites) {
         actionType = 'create_visit';
         targetMode = 'create_new';
       } else {
@@ -46,7 +53,7 @@ export function buildVisitActions(
       break;
 
     case 'update_existing_visit_same_date':
-      if (hasVisitContent) {
+      if (hasVisitLevelChanges) {
         actionType = 'update_visit';
         targetMode = 'update_existing';
       } else {
