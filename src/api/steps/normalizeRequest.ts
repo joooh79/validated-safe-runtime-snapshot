@@ -3,6 +3,7 @@ import type {
   PreparedApiRequest,
 } from '../../types/api.js';
 import type { NormalizedContract } from '../../types/contract.js';
+import type { CurrentStateLookupBundle } from '../../resolution/index.js';
 import { isContractInputValid, isNormalizedContractValid } from '../../contract/guards.js';
 import { createEmptyLookupBundle } from '../../resolution/index.js';
 import {
@@ -42,10 +43,15 @@ export async function normalizeRequest(
     );
   }
 
+  const lookupBundle = cloneLookupBundle(
+    request.lookupBundle ?? createEmptyLookupBundle(),
+  );
+  applyInteractionLookupPatch(lookupBundle, request);
+
   const prepared: PreparedApiRequest = {
     requestId: finalRequestId,
     contract: normalized,
-    lookupBundle: request.lookupBundle ?? createEmptyLookupBundle(),
+    lookupBundle,
     provider: resolveProvider(request),
     confirmed: request.interactionInput?.confirmation?.confirmed ?? false,
     dryRun: request.dryRun ?? request.providerConfig?.mode === 'dryrun',
@@ -111,6 +117,37 @@ function applyInteractionInput(
   }
 }
 
+function applyInteractionLookupPatch(
+  lookupBundle: CurrentStateLookupBundle,
+  request: ApiOrchestrationRequest,
+): void {
+  const recheckInput = request.interactionInput?.recheck;
+
+  if (!recheckInput?.confirmedPatientId) {
+    return;
+  }
+
+  const currentLookup = lookupBundle.patientLookup;
+  const patchedLookup: CurrentStateLookupBundle['patientLookup'] = {
+    found: true,
+    patientId: recheckInput.confirmedPatientId,
+  };
+
+  if (currentLookup.birthYear !== undefined) {
+    patchedLookup.birthYear = currentLookup.birthYear;
+  }
+
+  if (currentLookup.gender !== undefined) {
+    patchedLookup.gender = currentLookup.gender;
+  }
+
+  if (currentLookup.firstVisitDate !== undefined) {
+    patchedLookup.firstVisitDate = currentLookup.firstVisitDate;
+  }
+
+  lookupBundle.patientLookup = patchedLookup;
+}
+
 function resolveProvider(request: ApiOrchestrationRequest) {
   if (request.provider) {
     return request.provider;
@@ -167,4 +204,55 @@ function cloneContract(contract: NormalizedContract): NormalizedContract {
     findingsContext,
     warnings: [...contract.warnings],
   };
+}
+
+function cloneLookupBundle(
+  lookupBundle: CurrentStateLookupBundle,
+): CurrentStateLookupBundle {
+  const cloned: CurrentStateLookupBundle = {
+    patientLookup: { ...lookupBundle.patientLookup },
+    sameDateVisitLookup: { ...lookupBundle.sameDateVisitLookup },
+    caseLookups: Object.fromEntries(
+      Object.entries(lookupBundle.caseLookups).map(([key, value]) => [
+        key,
+        { ...value },
+      ]),
+    ),
+  };
+
+  if (lookupBundle.targetVisitLookup) {
+    cloned.targetVisitLookup = { ...lookupBundle.targetVisitLookup };
+  }
+
+  if (lookupBundle.snapshotLookups) {
+    const snapshotLookups = Object.fromEntries(
+      Object.entries(lookupBundle.snapshotLookups).flatMap(([branch, records]) =>
+        records
+          ? [
+              [
+                branch,
+                Object.fromEntries(
+                  Object.entries(records).map(([tooth, record]) => [
+                    tooth,
+                    { ...record },
+                  ]),
+                ),
+              ],
+            ]
+          : [],
+      ),
+    ) as NonNullable<CurrentStateLookupBundle['snapshotLookups']>;
+
+    cloned.snapshotLookups = snapshotLookups;
+  }
+
+  if (lookupBundle.ambiguityHints) {
+    cloned.ambiguityHints = [...lookupBundle.ambiguityHints];
+  }
+
+  if (lookupBundle.providerNotes) {
+    cloned.providerNotes = lookupBundle.providerNotes;
+  }
+
+  return cloned;
 }

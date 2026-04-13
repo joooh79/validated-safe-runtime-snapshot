@@ -71,7 +71,7 @@ const TOOL_DEFINITIONS: McpToolDefinition[] = [
   {
     name: 'execute',
     description:
-      'Send a request payload to the execute endpoint. Execution requires explicit confirmation in the payload.',
+      'Send a request payload to the execute endpoint. Call this only after preview succeeds for the same payload in the current MCP session.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -240,7 +240,7 @@ export function createMcpSseTransport(config: McpSseTransportConfig) {
 
       try {
         const toolCall = parseToolCall(message);
-        const result = await config.handleToolCall(toolCall);
+        const result = await dispatchToolCall(sessionId, toolCall);
 
         return {
           jsonrpc: '2.0',
@@ -265,7 +265,7 @@ export function createMcpSseTransport(config: McpSseTransportConfig) {
       }
 
       try {
-        const result = await config.handleToolCall({
+        const result = await dispatchToolCall(sessionId, {
           toolName: message.method,
           payload: extractDirectPayload(message.params),
         });
@@ -292,6 +292,46 @@ export function createMcpSseTransport(config: McpSseTransportConfig) {
     }
 
     return buildErrorResponse(message.id, -32601, `Method not found: ${message.method}`);
+  }
+
+  async function dispatchToolCall(
+    sessionId: string,
+    toolCall: McpToolCallInput,
+  ): Promise<unknown> {
+    if (toolCall.toolName === 'execute') {
+      const executeFingerprint = buildPayloadFingerprint(toolCall.payload);
+      const previewState = config.sessionManager.getPreviewState(sessionId);
+
+      if (
+        !previewState ||
+        previewState.payloadFingerprint !== executeFingerprint ||
+        !previewState.executeAllowed
+      ) {
+        return buildPreviewFirstRequiredResult(
+          !previewState
+            ? 'Preview is required before execute in this MCP session.'
+            : previewState.payloadFingerprint !== executeFingerprint
+              ? 'The payload changed after preview. Preview again before execute.'
+              : 'Preview exists, but execution is not allowed from the current preview state.',
+        );
+      }
+    }
+
+    const result = await config.handleToolCall(toolCall);
+
+    if (toolCall.toolName === 'preview') {
+      const executeAllowed = getExecuteAllowedFromResult(result);
+      config.sessionManager.setPreviewState(sessionId, {
+        payloadFingerprint: buildPayloadFingerprint(toolCall.payload),
+        executeAllowed,
+        terminalStatus: getTerminalStatusFromResult(result),
+        updatedAt: Date.now(),
+      });
+    } else if (toolCall.toolName === 'execute') {
+      config.sessionManager.clearPreviewState(sessionId);
+    }
+
+    return result;
   }
 
   return {
@@ -364,12 +404,13 @@ function extractDirectPayload(params: unknown): unknown {
 
 function buildToolResult(result: unknown): Record<string, unknown> {
   const structuredContent = isRecord(result) ? result : { value: result };
+  const conversationText = buildConversationText(structuredContent);
 
   return {
     content: [
       {
         type: 'text',
-        text: JSON.stringify(structuredContent, null, 2),
+        text: conversationText,
       },
     ],
     structuredContent,
@@ -396,4 +437,242 @@ function buildErrorResponse(
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function buildPreviewFirstRequiredResult(message: string): Record<string, unknown> {
+  return {
+    requestId: 'mcp_preview_required',
+    success: false,
+    apiState: 'blocked',
+    terminalStatus: 'hard_stop',
+    interactionMode: 'hard_stop',
+    readiness: 'blocked_unresolved',
+    didWrite: false,
+    warnings: [message],
+    nextStepHint: 'Call preview with the current payload first. Execute is a second step only.',
+    message,
+    confirmed: false,
+    requiresConfirmation: false,
+    interaction: {
+      mode: 'await_user_choice',
+      uiKind: 'hard_stop',
+      userMessage: message,
+      assistantQuestion:
+        'Preview is mandatory in MCP/chat mode.\n1. Call preview with the current payload\n2. Revise the payload, then call preview\n3. Cancel',
+      requiredUserInput: {
+        type: 'single_number_choice',
+        field: 'preview_first_enforcement_choice',
+        prompt: 'Choose one number.',
+        choices: [
+          {
+            number: 1,
+            label: 'Call preview with the current payload',
+            value: 'call_preview',
+          },
+          {
+            number: 2,
+            label: 'Revise payload, then call preview',
+            value: 'revise_and_preview_again',
+          },
+          {
+            number: 3,
+            label: 'Cancel',
+            value: 'cancel',
+          },
+        ],
+      },
+      choiceMap: [
+        {
+          number: 1,
+          meaning: 'call_preview',
+          label: 'Call preview with the current payload',
+          nextTool: 'preview',
+          requiresPreviewAfterChoice: true,
+        },
+        {
+          number: 2,
+          meaning: 'revise_and_preview_again',
+          label: 'Revise payload, then call preview',
+          nextTool: 'preview',
+          requiresPreviewAfterChoice: true,
+        },
+        {
+          number: 3,
+          meaning: 'cancel',
+          label: 'Cancel',
+          nextTool: 'none',
+          requiresPreviewAfterChoice: false,
+        },
+      ],
+      nextStepType: 'blocked',
+      mustPreviewBeforeExecute: true,
+      previewInvalidatedByPayloadChange: true,
+      executeAllowed: false,
+      executeLockedReason: message,
+    },
+  };
+}
+
+function buildPayloadFingerprint(payload: unknown): string {
+  return JSON.stringify(sortDeep(sanitizePayloadForPreview(payload)));
+}
+
+function sanitizePayloadForPreview(payload: unknown): unknown {
+  if (!isRecord(payload)) {
+    return payload;
+  }
+
+  const cloned = sortDeep(payload) as Record<string, unknown>;
+  const interactionInput = cloned.interactionInput;
+
+  if (isRecord(interactionInput) && isRecord(interactionInput.confirmation)) {
+    const sanitizedInteraction = { ...interactionInput };
+    delete sanitizedInteraction.confirmation;
+
+    if (Object.keys(sanitizedInteraction).length === 0) {
+      delete cloned.interactionInput;
+    } else {
+      cloned.interactionInput = sanitizedInteraction;
+    }
+  }
+
+  return cloned;
+}
+
+function sortDeep(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => sortDeep(item));
+  }
+
+  if (isRecord(value)) {
+    return Object.keys(value)
+      .sort()
+      .reduce<Record<string, unknown>>((acc, key) => {
+        acc[key] = sortDeep(value[key]);
+        return acc;
+      }, {});
+  }
+
+  return value;
+}
+
+function getExecuteAllowedFromResult(result: unknown): boolean {
+  return (
+    isRecord(result) &&
+    result.success === true &&
+    result.terminalStatus === 'preview_pending_confirmation' &&
+    result.requiresConfirmation === true &&
+    result.readiness === 'execution_ready'
+  );
+}
+
+function getTerminalStatusFromResult(result: unknown): string {
+  if (isRecord(result) && typeof result.terminalStatus === 'string') {
+    return result.terminalStatus;
+  }
+
+  return 'unknown';
+}
+
+function buildConversationText(structuredContent: Record<string, unknown>): string {
+  const sections: string[] = [];
+  const terminalStatus = stringifyOptional(structuredContent.terminalStatus);
+  const message = stringifyOptional(structuredContent.message);
+  const nextStepHint = stringifyOptional(structuredContent.nextStepHint);
+  const readablePreview = isRecord(structuredContent.readablePreview)
+    ? structuredContent.readablePreview
+    : null;
+  const interaction = isRecord(structuredContent.interaction)
+    ? structuredContent.interaction
+    : null;
+
+  if (terminalStatus) {
+    sections.push(`Status: ${terminalStatus}`);
+  }
+
+  if (message) {
+    sections.push(message);
+  }
+
+  if (readablePreview) {
+    const patientSummary = getSummaryValue(readablePreview.patient_summary);
+    const visitSummary = getSummaryValue(readablePreview.visit_summary);
+    const caseSummary = getSummaryValue(readablePreview.case_summary);
+
+    if (patientSummary) {
+      sections.push(`Patient: ${patientSummary}`);
+    }
+
+    if (visitSummary) {
+      sections.push(`Visit: ${visitSummary}`);
+    }
+
+    if (caseSummary) {
+      sections.push(`Case: ${caseSummary}`);
+    }
+
+    const findings = Array.isArray(readablePreview.findings)
+      ? readablePreview.findings
+      : [];
+
+    if (findings.length > 0) {
+      const findingLines = findings.map((finding) => {
+        if (!isRecord(finding)) {
+          return null;
+        }
+
+        const branch = stringifyOptional(finding.branch_code);
+        const tooth = stringifyOptional(finding.tooth_number);
+        const reps = Array.isArray(finding.representative_fields)
+          ? finding.representative_fields
+              .filter(isRecord)
+              .map((field) => {
+                const label = stringifyOptional(field.field);
+                const value = stringifyOptional(field.value);
+                return label && value ? `${label}: ${value}` : null;
+              })
+              .filter(Boolean)
+          : [];
+
+        const suffix = reps.length > 0 ? ` (${reps.join('; ')})` : '';
+        return `- ${branch || 'Finding'} tooth ${tooth || '?'}` + suffix;
+      }).filter(Boolean);
+
+      if (findingLines.length > 0) {
+        sections.push(`Findings:\n${findingLines.join('\n')}`);
+      }
+    }
+  }
+
+  if (nextStepHint) {
+    sections.push(`Next step: ${nextStepHint}`);
+  }
+
+  if (interaction) {
+    const assistantQuestion = stringifyOptional(interaction.assistantQuestion);
+    if (assistantQuestion) {
+      sections.push(assistantQuestion);
+    }
+  }
+
+  return sections.join('\n\n') || JSON.stringify(structuredContent, null, 2);
+}
+
+function getSummaryValue(value: unknown): string | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  const label = stringifyOptional(value.label);
+  const mainValue = stringifyOptional(value.value);
+
+  if (!label || !mainValue) {
+    return null;
+  }
+
+  return `${label}: ${mainValue}`;
+}
+
+function stringifyOptional(value: unknown): string | null {
+  return typeof value === 'string' && value.length > 0 ? value : null;
 }

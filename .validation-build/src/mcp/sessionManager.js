@@ -29,6 +29,7 @@ export function createMcpSessionManager(config) {
             initialized: false,
             response,
             heartbeatTimer,
+            previewState: null,
         };
         sessions.set(sessionId, session);
         bindResponseLifecycle(sessionId, response);
@@ -52,6 +53,27 @@ export function createMcpSessionManager(config) {
             return false;
         }
         session.initialized = true;
+        session.lastSeenAt = now();
+        return true;
+    }
+    function setPreviewState(sessionId, previewState) {
+        const session = sessions.get(sessionId);
+        if (!session) {
+            return false;
+        }
+        session.previewState = previewState;
+        session.lastSeenAt = now();
+        return true;
+    }
+    function getPreviewState(sessionId) {
+        return sessions.get(sessionId)?.previewState ?? null;
+    }
+    function clearPreviewState(sessionId) {
+        const session = sessions.get(sessionId);
+        if (!session) {
+            return false;
+        }
+        session.previewState = null;
         session.lastSeenAt = now();
         return true;
     }
@@ -96,6 +118,9 @@ export function createMcpSessionManager(config) {
         getSession,
         touchSession,
         markInitialized,
+        setPreviewState,
+        getPreviewState,
+        clearPreviewState,
         closeSession,
         closeAll,
         getSessionSnapshot,

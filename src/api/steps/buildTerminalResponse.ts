@@ -11,6 +11,7 @@ import type { PreviewModel } from '../../types/preview.js';
 import type { StateResolutionResult } from '../../types/resolution.js';
 import type { WritePlan } from '../../types/write-plan.js';
 import { buildReadablePreview } from './buildReadablePreview.js';
+import { buildConversationInteraction } from './buildConversationInteraction.js';
 
 export interface BuildTerminalResponseInput {
   request: PreparedApiRequest;
@@ -53,6 +54,14 @@ export function buildTerminalResponse(
     plan,
     planSummary: buildPlanSummary(plan),
     readablePreview: buildReadablePreview(request, preview, plan),
+    interaction: buildConversationInteraction({
+      request,
+      resolution,
+      plan,
+      preview,
+      terminalStatus,
+      requiresConfirmation,
+    }),
     didWrite: computeDidWrite(executionResult),
     warnings: [...resolution.warnings, ...plan.warnings],
     nextStepHint: getNextStepHint(terminalStatus, interactionMode, request.confirmed),
@@ -86,6 +95,20 @@ export function buildErrorResponse(
     message,
     confirmed: false,
     requiresConfirmation: false,
+    interaction: {
+      mode: 'inform',
+      uiKind: 'hard_stop',
+      userMessage: message,
+      assistantQuestion:
+        'Fix the request input and preview again. No execute step is available from this error state.',
+      requiredUserInput: null,
+      choiceMap: [],
+      nextStepType: 'blocked',
+      mustPreviewBeforeExecute: true,
+      previewInvalidatedByPayloadChange: true,
+      executeAllowed: false,
+      executeLockedReason: 'Execute is not available when the request failed validation.',
+    },
     error: {
       code: 'api_orchestration_error',
       message,

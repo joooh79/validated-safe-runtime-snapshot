@@ -254,6 +254,69 @@ export interface ApiReadablePreviewSummary {
   warnings: string[];
 }
 
+export interface ApiConversationChoiceValue {
+  number: number;
+  label: string;
+  value: string;
+}
+
+export interface ApiConversationTextField {
+  field: string;
+  label: string;
+  path: string;
+  required: boolean;
+}
+
+export interface ApiConversationRequiredUserInput {
+  type: 'single_number_choice' | 'single_number_choice_with_text' | 'text';
+  field: string;
+  prompt: string;
+  choices?: ApiConversationChoiceValue[];
+  textFields?: ApiConversationTextField[];
+}
+
+export interface ApiConversationChoiceMapEntry {
+  number: number;
+  meaning: string;
+  label: string;
+  nextTool: 'preview' | 'execute' | 'none';
+  requiresPreviewAfterChoice: boolean;
+  requestPatch?: {
+    interactionInput?: ApiInteractionInput;
+  };
+  requiresTextInput?: ApiConversationTextField[];
+}
+
+export interface ApiConversationInteraction {
+  mode: 'await_user_choice' | 'inform' | 'terminal';
+  uiKind:
+    | 'preview_confirmation'
+    | 'correction_required'
+    | 'recheck_required'
+    | 'hard_stop'
+    | 'no_op'
+    | 'blocked_before_write'
+    | 'executed'
+    | 'execution_failed';
+  userMessage: string;
+  assistantQuestion: string;
+  requiredUserInput: ApiConversationRequiredUserInput | null;
+  choiceMap: ApiConversationChoiceMapEntry[];
+  nextStepType:
+    | 'preview_confirmation'
+    | 'preview_again'
+    | 'correction_required'
+    | 'recheck_required'
+    | 'blocked'
+    | 'no_op'
+    | 'executed'
+    | 'execution_failed';
+  mustPreviewBeforeExecute: true;
+  previewInvalidatedByPayloadChange: true;
+  executeAllowed: boolean;
+  executeLockedReason: string;
+}
+
 export interface ApiOrchestrationRequest {
   requestId?: string;
   normalizedContract?: NormalizedContract;
@@ -290,6 +353,7 @@ export interface ApiOrchestrationResponse {
   plan?: WritePlan;
   planSummary?: ApiPlanSummaryView;
   readablePreview?: ApiReadablePreviewSummary;
+  interaction?: ApiConversationInteraction;
   executionResult?: ExecutionResult;
   didWrite: boolean;
   warnings: string[];

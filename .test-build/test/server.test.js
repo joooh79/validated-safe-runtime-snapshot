@@ -112,6 +112,76 @@ test('execute requests require explicit confirmation before orchestration', () =
         },
     }, config), /interactionInput\.confirmation\.confirmed/);
 });
+test('MCP execute is blocked until preview succeeds in the same session', async () => {
+    const { transport } = createTransportHarness();
+    const sseResponse = new MockResponse();
+    transport.handleSseConnection(new MockRequest('GET', SERVER_ROUTES.internalMcpSse), sseResponse);
+    const sessionId = extractSessionId(sseResponse.body);
+    const executeAck = new MockResponse();
+    await transport.handleMessage(new MockRequest('POST', `${SERVER_ROUTES.internalMcpMessage}?sessionId=${sessionId}`), executeAck, {
+        jsonrpc: '2.0',
+        id: 4,
+        method: 'tools/call',
+        params: {
+            name: 'execute',
+            arguments: {
+                payload: {
+                    ...apiFixture_safeNewVisitPreviewRequest,
+                    interactionInput: {
+                        confirmation: {
+                            confirmed: true,
+                        },
+                    },
+                },
+            },
+        },
+    });
+    const executeMessage = extractLastSseEvent(sseResponse.body, 'message');
+    assert.equal(executeMessage.id, 4);
+    assert.equal(executeMessage.result.isError, true);
+    assert.match(executeMessage.result.structuredContent.message, /Preview is required before execute in this MCP session/);
+});
+test('MCP execute is allowed after preview for the same payload in the same session', async () => {
+    const { transport } = createTransportHarness();
+    const sseResponse = new MockResponse();
+    transport.handleSseConnection(new MockRequest('GET', SERVER_ROUTES.internalMcpSse), sseResponse);
+    const sessionId = extractSessionId(sseResponse.body);
+    const previewAck = new MockResponse();
+    await transport.handleMessage(new MockRequest('POST', `${SERVER_ROUTES.internalMcpMessage}?sessionId=${sessionId}`), previewAck, {
+        jsonrpc: '2.0',
+        id: 5,
+        method: 'tools/call',
+        params: {
+            name: 'preview',
+            arguments: {
+                payload: apiFixture_safeNewVisitPreviewRequest,
+            },
+        },
+    });
+    const executeAck = new MockResponse();
+    await transport.handleMessage(new MockRequest('POST', `${SERVER_ROUTES.internalMcpMessage}?sessionId=${sessionId}`), executeAck, {
+        jsonrpc: '2.0',
+        id: 6,
+        method: 'tools/call',
+        params: {
+            name: 'execute',
+            arguments: {
+                payload: {
+                    ...apiFixture_safeNewVisitPreviewRequest,
+                    interactionInput: {
+                        confirmation: {
+                            confirmed: true,
+                        },
+                    },
+                },
+            },
+        },
+    });
+    const executeMessage = extractLastSseEvent(sseResponse.body, 'message');
+    assert.equal(executeMessage.id, 6);
+    assert.equal(executeMessage.result.isError, false);
+    assert.equal(executeMessage.result.structuredContent.terminalStatus, 'executed');
+});
 function createTransportHarness() {
     const sessionManager = createMcpSessionManager({
         sessionTtlMs: 5_000,
@@ -123,9 +193,36 @@ function createTransportHarness() {
         protocolVersion: '2025-06-18',
         messageEndpointPath: SERVER_ROUTES.internalMcpMessage,
         sessionManager,
-        async handleToolCall() {
+        async handleToolCall(input) {
+            if (input.toolName === 'preview') {
+                return {
+                    requestId: 'preview_req',
+                    success: true,
+                    apiState: 'preview_ready',
+                    terminalStatus: 'preview_pending_confirmation',
+                    interactionMode: 'preview_confirmation',
+                    readiness: 'execution_ready',
+                    didWrite: false,
+                    warnings: [],
+                    nextStepHint: 'Review the preview and confirm before execution.',
+                    message: 'Preview generated successfully.',
+                    confirmed: false,
+                    requiresConfirmation: true,
+                };
+            }
             return {
+                requestId: 'execute_req',
                 success: true,
+                apiState: 'execution_complete',
+                terminalStatus: 'executed',
+                interactionMode: 'preview_confirmation',
+                readiness: 'execution_ready',
+                didWrite: true,
+                warnings: [],
+                nextStepHint: 'Execution completed from the confirmed preview.',
+                message: 'Execution completed.',
+                confirmed: true,
+                requiresConfirmation: false,
             };
         },
     });

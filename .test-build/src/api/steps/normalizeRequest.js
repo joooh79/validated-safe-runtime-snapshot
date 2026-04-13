@@ -19,10 +19,12 @@ export async function normalizeRequest(request) {
     if (validation.warnings.length > 0) {
         normalized.warnings.push(...validation.warnings.map((warning) => `${warning.field}: ${warning.reason}`));
     }
+    const lookupBundle = cloneLookupBundle(request.lookupBundle ?? createEmptyLookupBundle());
+    applyInteractionLookupPatch(lookupBundle, request);
     const prepared = {
         requestId: finalRequestId,
         contract: normalized,
-        lookupBundle: request.lookupBundle ?? createEmptyLookupBundle(),
+        lookupBundle,
         provider: resolveProvider(request),
         confirmed: request.interactionInput?.confirmation?.confirmed ?? false,
         dryRun: request.dryRun ?? request.providerConfig?.mode === 'dryrun',
@@ -66,6 +68,27 @@ function applyInteractionInput(contract, request) {
         contract.patientClues.existingPatientClaim =
             recheckInput.existingPatientClaim;
     }
+}
+function applyInteractionLookupPatch(lookupBundle, request) {
+    const recheckInput = request.interactionInput?.recheck;
+    if (!recheckInput?.confirmedPatientId) {
+        return;
+    }
+    const currentLookup = lookupBundle.patientLookup;
+    const patchedLookup = {
+        found: true,
+        patientId: recheckInput.confirmedPatientId,
+    };
+    if (currentLookup.birthYear !== undefined) {
+        patchedLookup.birthYear = currentLookup.birthYear;
+    }
+    if (currentLookup.gender !== undefined) {
+        patchedLookup.gender = currentLookup.gender;
+    }
+    if (currentLookup.firstVisitDate !== undefined) {
+        patchedLookup.firstVisitDate = currentLookup.firstVisitDate;
+    }
+    lookupBundle.patientLookup = patchedLookup;
 }
 function resolveProvider(request) {
     if (request.provider) {
@@ -113,4 +136,38 @@ function cloneContract(contract) {
         findingsContext,
         warnings: [...contract.warnings],
     };
+}
+function cloneLookupBundle(lookupBundle) {
+    const cloned = {
+        patientLookup: { ...lookupBundle.patientLookup },
+        sameDateVisitLookup: { ...lookupBundle.sameDateVisitLookup },
+        caseLookups: Object.fromEntries(Object.entries(lookupBundle.caseLookups).map(([key, value]) => [
+            key,
+            { ...value },
+        ])),
+    };
+    if (lookupBundle.targetVisitLookup) {
+        cloned.targetVisitLookup = { ...lookupBundle.targetVisitLookup };
+    }
+    if (lookupBundle.snapshotLookups) {
+        const snapshotLookups = Object.fromEntries(Object.entries(lookupBundle.snapshotLookups).flatMap(([branch, records]) => records
+            ? [
+                [
+                    branch,
+                    Object.fromEntries(Object.entries(records).map(([tooth, record]) => [
+                        tooth,
+                        { ...record },
+                    ])),
+                ],
+            ]
+            : []));
+        cloned.snapshotLookups = snapshotLookups;
+    }
+    if (lookupBundle.ambiguityHints) {
+        cloned.ambiguityHints = [...lookupBundle.ambiguityHints];
+    }
+    if (lookupBundle.providerNotes) {
+        cloned.providerNotes = lookupBundle.providerNotes;
+    }
+    return cloned;
 }

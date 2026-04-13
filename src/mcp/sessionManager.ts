@@ -8,6 +8,7 @@ export interface McpSessionRecord {
   initialized: boolean;
   response: ServerResponse;
   heartbeatTimer: NodeJS.Timeout;
+  previewState: McpSessionPreviewState | null;
 }
 
 export interface McpSessionSnapshot {
@@ -15,6 +16,13 @@ export interface McpSessionSnapshot {
   createdAt: number;
   lastSeenAt: number;
   initialized: boolean;
+}
+
+export interface McpSessionPreviewState {
+  payloadFingerprint: string;
+  executeAllowed: boolean;
+  terminalStatus: string;
+  updatedAt: number;
 }
 
 export interface McpSessionManagerConfig {
@@ -34,6 +42,9 @@ export interface McpSessionManager {
   getSession(sessionId: string): McpSessionRecord | null;
   touchSession(sessionId: string): McpSessionRecord | null;
   markInitialized(sessionId: string): boolean;
+  setPreviewState(sessionId: string, previewState: McpSessionPreviewState): boolean;
+  getPreviewState(sessionId: string): McpSessionPreviewState | null;
+  clearPreviewState(sessionId: string): boolean;
   closeSession(sessionId: string, reason: string): boolean;
   closeAll(reason: string): void;
   getSessionSnapshot(sessionId: string): McpSessionSnapshot | null;
@@ -77,6 +88,7 @@ export function createMcpSessionManager(
       initialized: false,
       response,
       heartbeatTimer,
+      previewState: null,
     };
 
     sessions.set(sessionId, session);
@@ -107,6 +119,35 @@ export function createMcpSessionManager(
     }
 
     session.initialized = true;
+    session.lastSeenAt = now();
+    return true;
+  }
+
+  function setPreviewState(
+    sessionId: string,
+    previewState: McpSessionPreviewState,
+  ): boolean {
+    const session = sessions.get(sessionId);
+    if (!session) {
+      return false;
+    }
+
+    session.previewState = previewState;
+    session.lastSeenAt = now();
+    return true;
+  }
+
+  function getPreviewState(sessionId: string): McpSessionPreviewState | null {
+    return sessions.get(sessionId)?.previewState ?? null;
+  }
+
+  function clearPreviewState(sessionId: string): boolean {
+    const session = sessions.get(sessionId);
+    if (!session) {
+      return false;
+    }
+
+    session.previewState = null;
     session.lastSeenAt = now();
     return true;
   }
@@ -165,6 +206,9 @@ export function createMcpSessionManager(
     getSession,
     touchSession,
     markInitialized,
+    setPreviewState,
+    getPreviewState,
+    clearPreviewState,
     closeSession,
     closeAll,
     getSessionSnapshot,
