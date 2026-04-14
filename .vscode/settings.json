@@ -2,11 +2,9 @@
   "github.copilot.chat.mcpServers": {
     "mcp-sender-proxy": {
       "type": "sse",
-      "url": "https://mcp-auth-proxy-worker.jay0709.workers.dev/mcp/sse",
+      "url": "http://127.0.0.1:10001/internal/mcp/sse",
       "args": [],
-      "env": {
-        "WORKER_PROXY_SECRET": "b0ec346778c693357b8f799f24be21e4"
-      }
+      "env": {}
     }
   }
 }

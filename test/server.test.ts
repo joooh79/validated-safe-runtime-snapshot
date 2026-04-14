@@ -429,6 +429,132 @@ test('same payload plus confirmation bit only is allowed on the direct preview/e
   assert.equal(executeMessage.result.structuredContent.terminalStatus, 'executed');
 });
 
+test('preview returns an MCP preview token for safer follow-up execute calls', async () => {
+  const { transport } = createTransportHarness();
+  const sseResponse = new MockResponse();
+
+  transport.handleSseConnection(
+    new MockRequest('GET', SERVER_ROUTES.internalMcpSse) as any,
+    sseResponse as any,
+  );
+
+  const sessionId = extractSessionId(sseResponse.body);
+
+  await transport.handleMessage(
+    new MockRequest(
+      'POST',
+      `${SERVER_ROUTES.internalMcpMessage}?sessionId=${sessionId}`,
+    ) as any,
+    new MockResponse() as any,
+    {
+      jsonrpc: '2.0',
+      id: 13,
+      method: 'tools/call',
+      params: {
+        name: 'preview',
+        arguments: {
+          payload: apiFixture_safeNewVisitPreviewRequest,
+        },
+      },
+    },
+  );
+
+  const previewMessage = extractLastSseEvent(sseResponse.body, 'message');
+  assert.equal(typeof previewMessage.result.structuredContent.mcpPreviewToken, 'string');
+  assert.ok(previewMessage.result.structuredContent.mcpPreviewToken.length > 0);
+});
+
+test('cross-session execute can resume from preview token without resending the full payload', async () => {
+  const seenToolCalls: Array<{ toolName: string; payload: unknown }> = [];
+  const { transport } = createTransportHarness({
+    onToolCall(input) {
+      seenToolCalls.push({
+        toolName: input.toolName,
+        payload: input.payload,
+      });
+    },
+  });
+
+  const previewSseResponse = new MockResponse();
+  transport.handleSseConnection(
+    new MockRequest('GET', SERVER_ROUTES.internalMcpSse) as any,
+    previewSseResponse as any,
+  );
+  const previewSessionId = extractSessionId(previewSseResponse.body);
+
+  await transport.handleMessage(
+    new MockRequest(
+      'POST',
+      `${SERVER_ROUTES.internalMcpMessage}?sessionId=${previewSessionId}`,
+    ) as any,
+    new MockResponse() as any,
+    {
+      jsonrpc: '2.0',
+      id: 14,
+      method: 'tools/call',
+      params: {
+        name: 'preview',
+        arguments: {
+          payload: apiFixture_safeNewVisitPreviewRequest,
+        },
+      },
+    },
+  );
+
+  const previewMessage = extractLastSseEvent(previewSseResponse.body, 'message');
+  const previewToken = previewMessage.result.structuredContent.mcpPreviewToken;
+  assert.equal(typeof previewToken, 'string');
+
+  const executeSseResponse = new MockResponse();
+  transport.handleSseConnection(
+    new MockRequest('GET', SERVER_ROUTES.internalMcpSse) as any,
+    executeSseResponse as any,
+  );
+  const executeSessionId = extractSessionId(executeSseResponse.body);
+
+  await transport.handleMessage(
+    new MockRequest(
+      'POST',
+      `${SERVER_ROUTES.internalMcpMessage}?sessionId=${executeSessionId}`,
+    ) as any,
+    new MockResponse() as any,
+    {
+      jsonrpc: '2.0',
+      id: 15,
+      method: 'tools/call',
+      params: {
+        name: 'execute',
+        arguments: {
+          payload: {
+            mcpPreviewToken: previewToken,
+            interactionInput: {
+              confirmation: {
+                confirmed: true,
+              },
+            },
+          },
+        },
+      },
+    },
+  );
+
+  const executeMessage = extractLastSseEvent(executeSseResponse.body, 'message');
+  assert.equal(executeMessage.id, 15);
+  assert.equal(executeMessage.result.isError, false);
+  assert.equal(executeMessage.result.structuredContent.terminalStatus, 'executed');
+
+  const executeCall = seenToolCalls.at(-1);
+  assert.equal(executeCall?.toolName, 'execute');
+  assert.deepEqual(executeCall?.payload, {
+    ...apiFixture_safeNewVisitPreviewRequest,
+    interactionInput: {
+      confirmation: {
+        confirmed: true,
+      },
+    },
+  });
+});
+
 test('MCP execute stays blocked when the payload changed beyond the confirmation bit', async () => {
   const { transport } = createTransportHarness();
   const sseResponse = new MockResponse();
@@ -554,7 +680,9 @@ test('real mode without server env secrets fails with a server-config error, not
   );
 });
 
-function createTransportHarness() {
+function createTransportHarness(options: {
+  onToolCall?: (input: { toolName: string; payload: unknown }) => void;
+} = {}) {
   const sessionManager = createMcpSessionManager({
     sessionTtlMs: 5_000,
     heartbeatIntervalMs: 250,
@@ -567,6 +695,8 @@ function createTransportHarness() {
     messageEndpointPath: SERVER_ROUTES.internalMcpMessage,
     sessionManager,
     async handleToolCall(input) {
+      options.onToolCall?.(input);
+
       if (input.toolName === 'preview') {
         return {
           requestId: 'preview_req',

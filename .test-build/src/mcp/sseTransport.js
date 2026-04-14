@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 const TOOL_DEFINITIONS = [
     {
         name: 'preview',
@@ -32,6 +33,7 @@ export function createMcpSseTransport(config) {
     // we can still recover the preview state using the payload fingerprint as cache key
     // This works regardless of whether requestId exists in the payload
     const fingerprintPreviewStateCache = new Map();
+    const previewTokenCache = new Map();
     const PREVIEW_STATE_TTL_MS = 5 * 60 * 1000; // 5 minute TTL
     function handleSseConnection(_request, response) {
         response.writeHead(200, {
@@ -215,9 +217,13 @@ export function createMcpSseTransport(config) {
             payloadFull: JSON.stringify(toolCall.payload),
             timestamp: new Date().toISOString(),
         });
+        let executePayload = toolCall.payload;
+        let matchedPreviewProof = null;
         if (toolCall.toolName === 'execute') {
-            // Try to get preview state from current session first
-            let previewStateBeforeGate = config.sessionManager.getPreviewState(sessionId);
+            const executeContext = resolveExecutePreviewContext(sessionId, toolCall.payload);
+            let previewStateBeforeGate = executeContext.previewState;
+            executePayload = executeContext.payloadForExecution;
+            matchedPreviewProof = executeContext.previewProof;
             const requestId = isRecord(toolCall.payload) && typeof toolCall.payload.requestId === 'string'
                 ? toolCall.payload.requestId
                 : 'unknown';
@@ -229,21 +235,6 @@ export function createMcpSseTransport(config) {
                 payloadHasRequestId: isRecord(toolCall.payload) && 'requestId' in toolCall.payload,
                 payloadRequestIdValue: isRecord(toolCall.payload) ? toolCall.payload.requestId : undefined,
             });
-            // INFINITE LOOP FIX: If not found in current session, try fingerprint cache
-            // This works regardless of whether requestId exists in the payload
-            if (!previewStateBeforeGate) {
-                const payloadFingerprint = buildPayloadFingerprint(toolCall.payload);
-                const cachedEntry = fingerprintPreviewStateCache.get(payloadFingerprint);
-                if (cachedEntry && Date.now() - cachedEntry.timestamp < PREVIEW_STATE_TTL_MS) {
-                    previewStateBeforeGate = cachedEntry.previewState;
-                    console.log('[MCP-INFINITE-LOOP-FIX] Recovered preview state from fingerprint cache:', {
-                        sessionId,
-                        fingerprint: payloadFingerprint.substring(0, 16),
-                        cacheAge: Date.now() - cachedEntry.timestamp,
-                        recoveredExecuteAllowed: previewStateBeforeGate?.executeAllowed,
-                    });
-                }
-            }
             // PHASE 2 DIAGNOSTIC: Log preview state before gate evaluation
             console.log('[MCP-PHASE-2] Before execute gate check:', {
                 sessionId,
@@ -256,7 +247,7 @@ export function createMcpSseTransport(config) {
                 } : null,
                 timestamp: new Date().toISOString(),
             });
-            const executeGate = evaluateExecuteGate(previewStateBeforeGate, toolCall.payload);
+            const executeGate = evaluateExecuteGate(previewStateBeforeGate, executePayload);
             console.log('[MCP-PHASE-2] Execute gate result:', {
                 sessionId,
                 ok: executeGate.ok,
@@ -272,7 +263,10 @@ export function createMcpSseTransport(config) {
                 return buildPreviewFirstRequiredResult(executeGate.message);
             }
         }
-        const result = await config.handleToolCall(toolCall);
+        const result = await config.handleToolCall({
+            ...toolCall,
+            payload: executePayload,
+        });
         if (toolCall.toolName === 'preview') {
             // PHASE 1 DIAGNOSTIC: Log preview result processing
             const executeAllowed = getExecuteAllowedFromResult(result);
@@ -305,22 +299,20 @@ export function createMcpSseTransport(config) {
                 updatedAt: Date.now(),
             };
             config.sessionManager.setPreviewState(sessionId, previewState);
-            // INFINITE LOOP FIX: Cache preview state by payload fingerprint for recovery
-            // This works regardless of whether requestId exists in the payload
-            fingerprintPreviewStateCache.set(fingerprint, {
-                previewState,
-                timestamp: Date.now(),
-            });
+            const previewProof = cachePreviewProof(previewState, toolCall.payload);
+            attachPreviewTokenToResult(result, previewProof.previewToken);
             console.log('[MCP-INFINITE-LOOP-FIX] Cached preview state for fingerprint:', {
                 fingerprint: fingerprint.substring(0, 16),
                 sessionId,
                 executeAllowed,
+                previewToken: previewProof.previewToken,
                 cacheSize: fingerprintPreviewStateCache.size,
             });
             config.logEvent?.('mcp_preview_proof_recorded', {
                 sessionId,
                 executeAllowed,
                 terminalStatus: getTerminalStatusFromResult(result),
+                previewToken: previewProof.previewToken,
             });
         }
         else if (toolCall.toolName === 'execute' && shouldConsumePreviewProof(result)) {
@@ -332,12 +324,113 @@ export function createMcpSseTransport(config) {
                 timestamp: new Date().toISOString(),
             });
             config.sessionManager.clearPreviewState(sessionId);
+            if (matchedPreviewProof) {
+                clearCachedPreviewProof(matchedPreviewProof);
+            }
             config.logEvent?.('mcp_preview_proof_consumed', {
                 sessionId,
                 terminalStatus: getTerminalStatusFromResult(result),
+                ...(matchedPreviewProof ? { previewToken: matchedPreviewProof.previewToken } : {}),
             });
         }
         return result;
+    }
+    function resolveExecutePreviewContext(sessionId, payload) {
+        const previewToken = extractPreviewToken(payload);
+        if (previewToken) {
+            const tokenProof = getFreshCachedPreviewProofByToken(previewToken);
+            if (tokenProof) {
+                console.log('[MCP-INFINITE-LOOP-FIX] Recovered preview state from preview token:', {
+                    sessionId,
+                    previewToken,
+                    recoveredExecuteAllowed: tokenProof.previewState.executeAllowed,
+                });
+                return {
+                    previewState: tokenProof.previewState,
+                    payloadForExecution: buildExecutePayloadFromPreviewProof(tokenProof.originalPayload, payload),
+                    previewProof: tokenProof,
+                };
+            }
+        }
+        const sessionPreviewState = config.sessionManager.getPreviewState(sessionId);
+        if (sessionPreviewState) {
+            const sessionProof = getFreshCachedPreviewProofByFingerprint(sessionPreviewState.payloadFingerprint);
+            if (sessionProof && isExecuteResumePayload(payload)) {
+                console.log('[MCP-INFINITE-LOOP-FIX] Reused cached preview payload from session state:', {
+                    sessionId,
+                    previewToken: sessionProof.previewToken,
+                    recoveredExecuteAllowed: sessionPreviewState.executeAllowed,
+                });
+                return {
+                    previewState: sessionPreviewState,
+                    payloadForExecution: buildExecutePayloadFromPreviewProof(sessionProof.originalPayload, payload),
+                    previewProof: sessionProof,
+                };
+            }
+            return {
+                previewState: sessionPreviewState,
+                payloadForExecution: payload,
+                previewProof: sessionProof,
+            };
+        }
+        const payloadFingerprint = buildPayloadFingerprint(payload);
+        const cachedEntry = getFreshCachedPreviewProofByFingerprint(payloadFingerprint);
+        if (cachedEntry) {
+            console.log('[MCP-INFINITE-LOOP-FIX] Recovered preview state from fingerprint cache:', {
+                sessionId,
+                fingerprint: payloadFingerprint.substring(0, 16),
+                cacheAge: Date.now() - cachedEntry.timestamp,
+                recoveredExecuteAllowed: cachedEntry.previewState.executeAllowed,
+            });
+            return {
+                previewState: cachedEntry.previewState,
+                payloadForExecution: payload,
+                previewProof: cachedEntry,
+            };
+        }
+        return {
+            previewState: null,
+            payloadForExecution: payload,
+            previewProof: null,
+        };
+    }
+    function cachePreviewProof(previewState, originalPayload) {
+        const previewToken = randomUUID();
+        const entry = {
+            previewState,
+            timestamp: Date.now(),
+            previewToken,
+            originalPayload: cloneJsonValue(originalPayload),
+        };
+        fingerprintPreviewStateCache.set(previewState.payloadFingerprint, entry);
+        previewTokenCache.set(previewToken, entry);
+        return entry;
+    }
+    function getFreshCachedPreviewProofByFingerprint(payloadFingerprint) {
+        const entry = fingerprintPreviewStateCache.get(payloadFingerprint);
+        if (!entry) {
+            return null;
+        }
+        if (Date.now() - entry.timestamp >= PREVIEW_STATE_TTL_MS) {
+            clearCachedPreviewProof(entry);
+            return null;
+        }
+        return entry;
+    }
+    function getFreshCachedPreviewProofByToken(previewToken) {
+        const entry = previewTokenCache.get(previewToken);
+        if (!entry) {
+            return null;
+        }
+        if (Date.now() - entry.timestamp >= PREVIEW_STATE_TTL_MS) {
+            clearCachedPreviewProof(entry);
+            return null;
+        }
+        return entry;
+    }
+    function clearCachedPreviewProof(entry) {
+        previewTokenCache.delete(entry.previewToken);
+        fingerprintPreviewStateCache.delete(entry.previewState.payloadFingerprint);
     }
     return {
         handleSseConnection,
@@ -487,6 +580,15 @@ function buildPreviewFirstRequiredResult(message) {
         },
     };
 }
+function attachPreviewTokenToResult(result, previewToken) {
+    if (!isRecord(result)) {
+        return;
+    }
+    result.mcpPreviewToken = previewToken;
+    if (isRecord(result.display) && isRecord(result.display.executionState)) {
+        result.display.executionState.mcpPreviewToken = previewToken;
+    }
+}
 function evaluateExecuteGate(previewState, payload) {
     if (!previewState) {
         return {
@@ -541,11 +643,57 @@ function buildPayloadFingerprint(payload) {
     });
     return stringified;
 }
+function extractPreviewToken(payload) {
+    if (!isRecord(payload)) {
+        return null;
+    }
+    return typeof payload.mcpPreviewToken === 'string' && payload.mcpPreviewToken.length > 0
+        ? payload.mcpPreviewToken
+        : null;
+}
+function buildExecutePayloadFromPreviewProof(originalPayload, executePayload) {
+    const cloned = isRecord(originalPayload)
+        ? cloneJsonValue(originalPayload)
+        : {};
+    const confirmation = extractExecuteConfirmation(executePayload);
+    const previewToken = extractPreviewToken(executePayload);
+    if (previewToken) {
+        delete cloned.mcpPreviewToken;
+    }
+    const interactionInput = isRecord(cloned.interactionInput)
+        ? { ...cloned.interactionInput }
+        : {};
+    interactionInput.confirmation = {
+        confirmed: confirmation,
+    };
+    cloned.interactionInput = interactionInput;
+    return cloned;
+}
+function extractExecuteConfirmation(payload) {
+    if (isRecord(payload) &&
+        isRecord(payload.interactionInput) &&
+        isRecord(payload.interactionInput.confirmation) &&
+        payload.interactionInput.confirmation.confirmed === true) {
+        return true;
+    }
+    return false;
+}
+function isExecuteResumePayload(payload) {
+    if (!extractExecuteConfirmation(payload) || !isRecord(payload)) {
+        return false;
+    }
+    return !('normalizedContract' in payload ||
+        'contractInput' in payload ||
+        'lookupBundle' in payload ||
+        'providerConfig' in payload ||
+        'provider' in payload);
+}
 function sanitizePayloadForPreview(payload) {
     if (!isRecord(payload)) {
         return payload;
     }
     const cloned = sortDeep(payload);
+    delete cloned.mcpPreviewToken;
     delete cloned.requestId;
     const interactionInput = cloned.interactionInput;
     const normalizedContract = cloned.normalizedContract;
@@ -564,6 +712,9 @@ function sanitizePayloadForPreview(payload) {
         }
     }
     return cloned;
+}
+function cloneJsonValue(value) {
+    return JSON.parse(JSON.stringify(value));
 }
 function sortDeep(value) {
     if (Array.isArray(value)) {
@@ -623,6 +774,7 @@ function buildConversationText(structuredContent) {
     const interaction = isRecord(structuredContent.interaction)
         ? structuredContent.interaction
         : null;
+    const previewToken = stringifyOptional(structuredContent.mcpPreviewToken);
     if (terminalStatus) {
         sections.push(`Status: ${terminalStatus}`);
     }
@@ -697,6 +849,9 @@ function buildConversationText(structuredContent) {
     }
     if (nextStepHint) {
         sections.push(`Next step: ${nextStepHint}`);
+    }
+    if (previewToken) {
+        sections.push(`MCP preview token: ${previewToken}`);
     }
     if (interaction) {
         const userMessage = stringifyOptional(interaction.userMessage);
@@ -847,6 +1002,10 @@ function renderDisplayConversationText(display) {
         const lockedReason = stringifyOptional(executionState.executeLockedReason);
         if (lockedReason) {
             lines.push(`Execute lock: ${lockedReason}`);
+        }
+        const previewToken = stringifyOptional(executionState.mcpPreviewToken);
+        if (previewToken) {
+            lines.push(`Preview token: ${previewToken}`);
         }
         sections.push(lines.join('\n'));
     }
