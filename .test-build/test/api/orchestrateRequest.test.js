@@ -297,6 +297,111 @@ test('new patient new visit with continuityIntent none auto-creates patient, vis
     assert.equal(response.plan?.actions.filter((action) => action.actionType === 'create_snapshot').length, 4);
     assert.equal(response.plan?.preview.caseAction, 'Create new case for tooth 14');
     assert.equal(response.resolution?.summary.caseActionSummary, 'Create new case for tooth 14');
+    assert.equal(response.display?.title, 'Preview Ready');
+    assert.equal(response.display?.interaction.assistantQuestion, '숫자만 입력해 주세요.\n1. 이대로 진행\n2. 종료');
+    assert.deepEqual(response.display?.interaction.numeric_choices.map((choice) => ({
+        number: choice.number,
+        label: choice.label,
+        nextTool: choice.nextTool,
+    })), [
+        {
+            number: 1,
+            label: '이대로 진행',
+            nextTool: 'execute',
+        },
+        {
+            number: 2,
+            label: '종료',
+            nextTool: 'none',
+        },
+    ]);
+    assert.equal(response.display?.executionState.executeAllowed, true);
+    assert.equal(response.display?.executionState.nextTool, 'execute');
+    assert.equal(response.display?.executionState.nextStepType, 'preview_confirmation');
+    assert.equal(response.display?.executionState.requiresConfirmation, true);
+    assert.deepEqual(response.display?.patient.input_fields, [
+        {
+            field: 'Patient ID',
+            value: '916872',
+        },
+        {
+            field: 'Birth year',
+            value: '',
+        },
+        {
+            field: 'Gender',
+            value: '',
+        },
+        {
+            field: 'First visit date',
+            value: '2022-10-13',
+        },
+    ]);
+    assert.deepEqual(response.display?.visit.input_fields, [
+        {
+            field: 'Patient ID link',
+            value: '916872',
+        },
+        {
+            field: 'Visit date',
+            value: '2022-10-13',
+        },
+        {
+            field: 'Visit type',
+            value: 'first visit',
+        },
+        {
+            field: 'Chief complaint',
+            value: 'cold and hot sensitivity',
+        },
+        {
+            field: 'Pain level',
+            value: '1',
+        },
+        {
+            field: 'Doctor confirmed correction',
+            value: 'false',
+        },
+    ]);
+    assert.deepEqual(response.display?.case.input_fields, [
+        {
+            field: 'Patient ID',
+            value: '916872',
+        },
+        {
+            field: 'Tooth number',
+            value: '14',
+        },
+        {
+            field: 'Episode start date',
+            value: '2022-10-13',
+        },
+    ]);
+    assert.deepEqual(response.display?.findings[0]?.representative_fields, [
+        {
+            field: 'Symptom',
+            value: 'cold sensitivity',
+        },
+    ]);
+    assert.deepEqual(response.display?.findings[0]?.input_fields, [
+        {
+            field: 'Symptom',
+            value: 'cold sensitivity',
+        },
+        {
+            field: 'Symptom reproducible',
+            value: '',
+        },
+        {
+            field: 'Visible crack',
+            value: '',
+        },
+        {
+            field: 'Crack detection method',
+            value: '',
+        },
+    ]);
+    assert.equal(response.display?.findings[0]?.field_changes[0]?.field, 'Symptom');
 });
 test('new patient new visit with continuityIntent none creates one case per touched tooth', async () => {
     const response = await orchestrateRequest({

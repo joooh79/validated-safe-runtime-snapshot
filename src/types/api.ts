@@ -265,6 +265,60 @@ export interface ApiReadablePreviewSummary {
   warnings: string[];
 }
 
+export interface ApiDisplaySection {
+  label: string;
+  value: string;
+  details: string[];
+  input_fields: ApiRepresentativeFieldView[];
+  representative_fields: ApiRepresentativeFieldView[];
+}
+
+export interface ApiDisplayFinding {
+  no: number;
+  branch_code: SnapshotBranch;
+  tooth_number: string;
+  action: 'create' | 'update' | 'no_op';
+  label: string;
+  value: string;
+  input_fields: ApiRepresentativeFieldView[];
+  representative_fields: ApiRepresentativeFieldView[];
+  field_changes: ApiReadableFieldChangeView[];
+  entered_field_count: number;
+}
+
+export interface ApiDisplayInteraction {
+  userMessage: string;
+  assistantQuestion: string;
+  requiredUserInput: ApiConversationRequiredUserInput | null;
+  numeric_choices: Array<{
+    number: number;
+    label: string;
+    meaning: string;
+    nextTool: string;
+  }>;
+}
+
+export interface ApiDisplayExecutionState {
+  executeAllowed: boolean;
+  executeLockedReason: string;
+  nextTool: string | null;
+  nextStepType: ApiConversationInteraction['nextStepType'];
+  nextStep: PreviewModel['allowedNextSteps'][number] | WritePlan['preview']['nextStep'] | null;
+  requiresConfirmation: boolean;
+}
+
+export interface ApiDisplay {
+  title: string;
+  message: string;
+  patient: ApiDisplaySection;
+  visit: ApiDisplaySection;
+  case: ApiDisplaySection;
+  findings: ApiDisplayFinding[];
+  warnings: string[];
+  interaction: ApiDisplayInteraction;
+  executionState: ApiDisplayExecutionState;
+}
+
 export interface ApiConversationChoiceValue {
   number: number;
   label: string;
@@ -365,6 +419,7 @@ export interface ApiOrchestrationResponse {
   planSummary?: ApiPlanSummaryView;
   readablePreview?: ApiReadablePreviewSummary;
   interaction?: ApiConversationInteraction;
+  display?: ApiDisplay;
   executionResult?: ExecutionResult;
   didWrite: boolean;
   warnings: string[];

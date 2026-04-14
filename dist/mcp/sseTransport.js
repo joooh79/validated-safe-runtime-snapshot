@@ -475,6 +475,10 @@ function shouldConsumePreviewProof(result) {
         (result.terminalStatus === 'executed' || result.didWrite === true));
 }
 function buildConversationText(structuredContent) {
+    const display = isRecord(structuredContent.display) ? structuredContent.display : null;
+    if (display) {
+        return renderDisplayConversationText(display);
+    }
     const sections = [];
     const terminalStatus = stringifyOptional(structuredContent.terminalStatus);
     const message = stringifyOptional(structuredContent.message);
@@ -572,6 +576,148 @@ function buildConversationText(structuredContent) {
     }
     return sections.join('\n\n') || JSON.stringify(structuredContent, null, 2);
 }
+function renderDisplayConversationText(display) {
+    const sections = [];
+    const title = stringifyOptional(display.title);
+    const message = stringifyOptional(display.message);
+    const patient = isRecord(display.patient) ? display.patient : null;
+    const visit = isRecord(display.visit) ? display.visit : null;
+    const caseSection = isRecord(display.case) ? display.case : null;
+    const findings = Array.isArray(display.findings) ? display.findings.filter(isRecord) : [];
+    const warnings = Array.isArray(display.warnings)
+        ? display.warnings.map((warning) => stringifyOptional(warning)).filter(Boolean)
+        : [];
+    const interaction = isRecord(display.interaction) ? display.interaction : null;
+    const executionState = isRecord(display.executionState) ? display.executionState : null;
+    if (title) {
+        sections.push(title);
+    }
+    if (message) {
+        sections.push(message);
+    }
+    for (const [sectionTitle, sectionValue] of [
+        ['Patient', patient],
+        ['Visit', visit],
+        ['Case', caseSection],
+    ]) {
+        if (!sectionValue) {
+            continue;
+        }
+        const lines = [];
+        const label = stringifyOptional(sectionValue.label);
+        const value = stringifyOptional(sectionValue.value);
+        const details = Array.isArray(sectionValue.details)
+            ? sectionValue.details.map((detail) => stringifyOptional(detail)).filter(Boolean)
+            : [];
+        const inputFields = Array.isArray(sectionValue.input_fields)
+            ? sectionValue.input_fields.filter(isRecord)
+            : [];
+        if (label || value) {
+            lines.push(`${label || sectionTitle}: ${value || '(empty)'}`);
+        }
+        if (details.length > 0) {
+            lines.push(...details.map((detail) => `- ${detail}`));
+        }
+        if (inputFields.length > 0) {
+            lines.push(...inputFields.map((field) => {
+                const fieldLabel = stringifyOptional(field.field);
+                const fieldValue = stringifyOptional(field.value);
+                return `- ${fieldLabel || 'Field'}: ${fieldValue ?? ''}`;
+            }));
+        }
+        if (lines.length > 0) {
+            sections.push(lines.join('\n'));
+        }
+    }
+    if (findings.length > 0) {
+        const findingLines = findings.map((finding) => {
+            const lines = [];
+            const branch = stringifyOptional(finding.branch_code);
+            const tooth = stringifyOptional(finding.tooth_number);
+            const value = stringifyOptional(finding.value);
+            lines.push(`[finding] ${branch || 'Finding'} tooth ${tooth || '?'}: ${value || '(empty)'}`);
+            const inputFields = Array.isArray(finding.input_fields)
+                ? finding.input_fields.filter(isRecord)
+                : [];
+            if (inputFields.length > 0) {
+                lines.push(...inputFields.map((field) => {
+                    const fieldLabel = stringifyOptional(field.field);
+                    const fieldValue = stringifyOptional(field.value);
+                    return `- ${fieldLabel || 'Field'}: ${fieldValue ?? ''}`;
+                }));
+            }
+            const fieldChanges = Array.isArray(finding.field_changes)
+                ? finding.field_changes.filter(isRecord)
+                : [];
+            if (fieldChanges.length > 0) {
+                lines.push(...fieldChanges.map((change) => {
+                    const fieldLabel = stringifyOptional(change.field);
+                    const status = stringifyOptional(change.status_label);
+                    const before = stringifyOptional(change.before);
+                    const incoming = stringifyOptional(change.incoming);
+                    const after = stringifyOptional(change.after);
+                    return [
+                        `- 상태: ${status || '(empty)'}`,
+                        `- 필드: ${fieldLabel || '(empty)'}`,
+                        `- 현재값: ${before || '(empty)'}`,
+                        `- 입력값: ${incoming || '(empty)'}`,
+                        `- 적용 후: ${after || '(empty)'}`,
+                    ].join('\n');
+                }));
+            }
+            return lines.join('\n');
+        });
+        sections.push(`Findings:\n${findingLines.join('\n')}`);
+    }
+    if (warnings.length > 0) {
+        sections.push(`Warnings:\n${warnings.map((warning) => `- ${warning}`).join('\n')}`);
+    }
+    if (interaction) {
+        const interactionLines = [];
+        const userMessage = stringifyOptional(interaction.userMessage);
+        const assistantQuestion = stringifyOptional(interaction.assistantQuestion);
+        const numericChoices = Array.isArray(interaction.numeric_choices)
+            ? interaction.numeric_choices.filter(isRecord)
+            : [];
+        if (userMessage && userMessage !== message) {
+            interactionLines.push(userMessage);
+        }
+        if (assistantQuestion) {
+            interactionLines.push(assistantQuestion);
+        }
+        if (numericChoices.length > 0) {
+            interactionLines.push(...numericChoices.map((choice) => {
+                const number = stringifyOptional(choice.number);
+                const label = stringifyOptional(choice.label);
+                const nextTool = stringifyOptional(choice.nextTool);
+                return `${number || '?'}${label ? '. ' : ' '}${label || '(empty)'}${nextTool ? ` [next: ${nextTool}]` : ''}`;
+            }));
+        }
+        if (interactionLines.length > 0) {
+            sections.push(interactionLines.join('\n'));
+        }
+    }
+    if (executionState) {
+        const lines = [
+            `Execute allowed: ${stringifyOptional(executionState.executeAllowed) || 'false'}`,
+            `Next step type: ${stringifyOptional(executionState.nextStepType) || '(empty)'}`,
+        ];
+        const nextTool = stringifyOptional(executionState.nextTool);
+        if (nextTool) {
+            lines.push(`Next tool: ${nextTool}`);
+        }
+        const nextStep = stringifyOptional(executionState.nextStep);
+        if (nextStep) {
+            lines.push(`Next step: ${nextStep}`);
+        }
+        const lockedReason = stringifyOptional(executionState.executeLockedReason);
+        if (lockedReason) {
+            lines.push(`Execute lock: ${lockedReason}`);
+        }
+        sections.push(lines.join('\n'));
+    }
+    return sections.join('\n\n') || JSON.stringify(display, null, 2);
+}
 function getSummaryValue(value) {
     if (!isRecord(value)) {
         return null;
@@ -584,5 +730,11 @@ function getSummaryValue(value) {
     return `${label}: ${mainValue}`;
 }
 function stringifyOptional(value) {
-    return typeof value === 'string' && value.length > 0 ? value : null;
+    if (typeof value === 'string') {
+        return value.length > 0 ? value : null;
+    }
+    if (typeof value === 'number' || typeof value === 'boolean') {
+        return String(value);
+    }
+    return null;
 }

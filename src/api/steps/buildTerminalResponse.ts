@@ -12,6 +12,7 @@ import type { StateResolutionResult } from '../../types/resolution.js';
 import type { WritePlan } from '../../types/write-plan.js';
 import { buildReadablePreview } from './buildReadablePreview.js';
 import { buildConversationInteraction } from './buildConversationInteraction.js';
+import { buildDisplay } from './buildDisplay.js';
 
 export interface BuildTerminalResponseInput {
   request: PreparedApiRequest;
@@ -41,6 +42,16 @@ export function buildTerminalResponse(
     interactionMode === 'preview_confirmation' &&
     plan.readiness === 'execution_ready';
 
+  const readablePreview = buildReadablePreview(request, preview, plan);
+  const interaction = buildConversationInteraction({
+    request,
+    resolution,
+    plan,
+    preview,
+    terminalStatus,
+    requiresConfirmation,
+  });
+
   const response: ApiOrchestrationResponse = {
     requestId: request.requestId,
     success,
@@ -53,15 +64,8 @@ export function buildTerminalResponse(
     resolutionSummary: resolution.summary,
     plan,
     planSummary: buildPlanSummary(plan),
-    readablePreview: buildReadablePreview(request, preview, plan),
-    interaction: buildConversationInteraction({
-      request,
-      resolution,
-      plan,
-      preview,
-      terminalStatus,
-      requiresConfirmation,
-    }),
+    readablePreview,
+    interaction,
     didWrite: computeDidWrite(executionResult),
     warnings: [...resolution.warnings, ...plan.warnings],
     nextStepHint: getNextStepHint(terminalStatus, interactionMode, request.confirmed),
@@ -69,6 +73,16 @@ export function buildTerminalResponse(
     confirmed: request.confirmed,
     requiresConfirmation,
   };
+
+  response.display = buildDisplay({
+    request,
+    preview,
+    plan,
+    readablePreview,
+    interaction,
+    message: response.message,
+    requiresConfirmation,
+  });
 
   if (executionResult) {
     response.executionResult = executionResult;
@@ -108,6 +122,48 @@ export function buildErrorResponse(
       previewInvalidatedByPayloadChange: true,
       executeAllowed: false,
       executeLockedReason: 'Execute is not available when the request failed validation.',
+    },
+    display: {
+      title: 'Request Failed',
+      message,
+      patient: {
+        label: 'Patient',
+        value: '',
+        details: [],
+        input_fields: [],
+        representative_fields: [],
+      },
+      visit: {
+        label: 'Visit',
+        value: '',
+        details: [],
+        input_fields: [],
+        representative_fields: [],
+      },
+      case: {
+        label: 'Case',
+        value: '',
+        details: [],
+        input_fields: [],
+        representative_fields: [],
+      },
+      findings: [],
+      warnings: [],
+      interaction: {
+        userMessage: message,
+        assistantQuestion:
+          'Fix the request input and preview again. No execute step is available from this error state.',
+        requiredUserInput: null,
+        numeric_choices: [],
+      },
+      executionState: {
+        executeAllowed: false,
+        executeLockedReason: 'Execute is not available when the request failed validation.',
+        nextTool: null,
+        nextStepType: 'blocked',
+        nextStep: null,
+        requiresConfirmation: false,
+      },
     },
     error: {
       code: 'api_orchestration_error',
