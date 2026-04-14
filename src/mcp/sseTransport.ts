@@ -85,10 +85,11 @@ const TOOL_DEFINITIONS: McpToolDefinition[] = [
 ];
 
 export function createMcpSseTransport(config: McpSseTransportConfig) {
-  // INFINITE LOOP FIX: requestId-based preview state cache for session recovery
+  // INFINITE LOOP FIX: payload fingerprint-based preview state cache for session recovery
   // When preview and execute have different sessionIds (common in MCP Chat),
-  // we can still recover the preview state using requestId
-  const requestIdPreviewStateCache = new Map<string, {
+  // we can still recover the preview state using the payload fingerprint as cache key
+  // This works regardless of whether requestId exists in the payload
+  const fingerprintPreviewStateCache = new Map<string, {
     previewState: ReturnType<McpSessionManager['getPreviewState']>;
     timestamp: number;
   }>();
@@ -312,6 +313,7 @@ export function createMcpSseTransport(config: McpSseTransportConfig) {
       toolName: toolCall.toolName,
       sessionId,
       payloadKeys: isRecord(toolCall.payload) ? Object.keys(toolCall.payload as any) : 'not-a-record',
+      payloadFull: JSON.stringify(toolCall.payload),
       timestamp: new Date().toISOString(),
     });
     
@@ -322,15 +324,27 @@ export function createMcpSseTransport(config: McpSseTransportConfig) {
         ? (toolCall.payload as any).requestId
         : 'unknown';
       
-      // INFINITE LOOP FIX: If not found and we have a requestId, try to recover from cache
-      if (!previewStateBeforeGate && requestId !== 'unknown') {
-        const cachedEntry = requestIdPreviewStateCache.get(requestId);
+      console.log('[MCP-DEBUG] Execute call requestId extraction:', {
+        sessionId,
+        requestId,
+        payloadType: typeof toolCall.payload,
+        isRecord: isRecord(toolCall.payload),
+        payloadHasRequestId: isRecord(toolCall.payload) && 'requestId' in (toolCall.payload as any),
+        payloadRequestIdValue: isRecord(toolCall.payload) ? (toolCall.payload as any).requestId : undefined,
+      });
+      
+      // INFINITE LOOP FIX: If not found in current session, try fingerprint cache
+      // This works regardless of whether requestId exists in the payload
+      if (!previewStateBeforeGate) {
+        const payloadFingerprint = buildPayloadFingerprint(toolCall.payload);
+        const cachedEntry = fingerprintPreviewStateCache.get(payloadFingerprint);
         if (cachedEntry && Date.now() - cachedEntry.timestamp < PREVIEW_STATE_TTL_MS) {
           previewStateBeforeGate = cachedEntry.previewState;
-          console.log('[MCP-INFINITE-LOOP-FIX] Recovered preview state from requestId cache:', {
+          console.log('[MCP-INFINITE-LOOP-FIX] Recovered preview state from fingerprint cache:', {
             sessionId,
-            requestId,
+            fingerprint: payloadFingerprint.substring(0, 16),
             cacheAge: Date.now() - cachedEntry.timestamp,
+            recoveredExecuteAllowed: previewStateBeforeGate?.executeAllowed,
           });
         }
       }
@@ -380,6 +394,15 @@ export function createMcpSseTransport(config: McpSseTransportConfig) {
         ? (toolCall.payload as any).requestId
         : 'unknown';
       
+      console.log('[MCP-DEBUG] Preview call requestId extraction:', {
+        sessionId,
+        requestId,
+        payloadType: typeof toolCall.payload,
+        isRecord: isRecord(toolCall.payload),
+        payloadHasRequestId: isRecord(toolCall.payload) && 'requestId' in (toolCall.payload as any),
+        payloadRequestIdValue: isRecord(toolCall.payload) ? (toolCall.payload as any).requestId : undefined,
+      });
+      
       console.log('[MCP-PHASE-1] Preview result processing:', {
         sessionId,
         requestId,
@@ -401,18 +424,18 @@ export function createMcpSseTransport(config: McpSseTransportConfig) {
 
       config.sessionManager.setPreviewState(sessionId, previewState);
       
-      // INFINITE LOOP FIX: Cache preview state by requestId for recovery
-      if (requestId !== 'unknown') {
-        requestIdPreviewStateCache.set(requestId, {
-          previewState,
-          timestamp: Date.now(),
-        });
-        console.log('[MCP-INFINITE-LOOP-FIX] Cached preview state for requestId:', {
-          requestId,
-          sessionId,
-          executeAllowed,
-        });
-      }
+      // INFINITE LOOP FIX: Cache preview state by payload fingerprint for recovery
+      // This works regardless of whether requestId exists in the payload
+      fingerprintPreviewStateCache.set(fingerprint, {
+        previewState,
+        timestamp: Date.now(),
+      });
+      console.log('[MCP-INFINITE-LOOP-FIX] Cached preview state for fingerprint:', {
+        fingerprint: fingerprint.substring(0, 16),
+        sessionId,
+        executeAllowed,
+        cacheSize: fingerprintPreviewStateCache.size,
+      });
 
       config.logEvent?.('mcp_preview_proof_recorded', {
         sessionId,
