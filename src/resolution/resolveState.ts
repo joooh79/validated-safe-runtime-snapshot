@@ -62,6 +62,7 @@ export async function resolveState(
   const readiness = computeReadiness(
     patientResolution,
     visitResolution,
+    caseResolution,
     correctionResolution,
     ambiguityResolution,
   );

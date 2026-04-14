@@ -32,6 +32,10 @@ Rules:
 - patient update uses the existing patient row keyed by `patient_id`
 - duplicate suspicion must block before write if identity is not safe
 
+Runtime note:
+- `patient_id` is the canonical business identity
+- sender must separately resolve the provider row ref / Airtable `recordId` before linked writes
+
 ### 2.2 Visit identity
 
 Canonical identity key:
@@ -75,6 +79,12 @@ Rules:
 - Case identity is based on patient + tooth + episode start date
 - a later split creates a new Case with a new episode start date and therefore a new `case_id`
 - sender must not create a second active case with the same `case_id`
+
+Runtime note:
+- `case_id` is not the same thing as the Airtable row ref
+- continuation writes must resolve both:
+  - canonical `case_id`
+  - provider row ref / Airtable `recordId`
 
 ### 2.4 Snapshot identity
 
@@ -192,6 +202,13 @@ Upsert rule:
 - continue only when target case resolution is safe
 - otherwise block and require correction or more explicit continuity input
 
+Continuation lookup rule:
+- ordinary users should not need to provide exact `episode_start_date`
+- sender should discover candidate Cases using patient + tooth + current-state evidence
+- if one safe candidate exists, sender may resolve it automatically
+- if multiple safe candidates exist, sender must require candidate confirmation before write
+- if no candidate exists, sender must not fabricate a continuation target
+
 ### 4.4 Snapshot rows
 
 Create:
@@ -261,6 +278,23 @@ The sender should be idempotent against canonical identity:
 
 Idempotence does not mean blind overwrite.
 It means deterministic targeting plus safe create/update choice.
+
+## 8.1 Canonical identity vs provider ref
+
+The sender must distinguish:
+
+- canonical business identity
+  - `patient_id`
+  - `visit_id`
+  - `case_id`
+- provider row ref
+  - Airtable `recordId`
+
+Rules:
+- users may provide canonical business identity clues
+- users must not be expected to provide Airtable `recordId`
+- linked writes must execute only after sender resolves the required provider refs internally
+- preview may show business identities, but execution readiness depends on provider refs being available
 
 ## 9. What must never be overwritten
 

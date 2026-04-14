@@ -213,6 +213,10 @@ export interface ApiInteractionInput {
     confirmedPatientId?: string;
     existingPatientClaim?: boolean;
   };
+  caseSelection?: {
+    toothNumber: string;
+    selectedCaseId: string;
+  };
 }
 
 export interface ApiPlanSummaryView {

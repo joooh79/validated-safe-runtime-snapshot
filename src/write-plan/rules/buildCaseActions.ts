@@ -147,7 +147,10 @@ function buildPrimaryCaseAction(input: {
 
   const primaryTarget: ActionTarget = {
     patientId,
-    caseId: target.resolvedCaseId || 'NEW',
+    caseId:
+      target.status === 'create_case'
+        ? 'NEW'
+        : target.resolvedCaseRecordRef || 'NEW',
     ...(target.visitDate ? { visitDate: target.visitDate } : {}),
     toothNumber: target.toothNumber,
     sourceResolutionPath: target.status,
@@ -217,7 +220,7 @@ function buildCaseSynthesisAction(input: {
   if (
     !hasCaseContent ||
     target.status !== 'continue_case' ||
-    !target.resolvedCaseId
+    !target.resolvedCaseRecordRef
   ) {
     return null;
   }
@@ -227,7 +230,7 @@ function buildCaseSynthesisAction(input: {
       planId,
       6,
       'update_case_latest_synthesis',
-      target.resolvedCaseId,
+      target.resolvedCaseId || target.resolvedCaseRecordRef,
     ),
     actionOrder: 6,
     actionType: 'update_case_latest_synthesis',
@@ -235,8 +238,9 @@ function buildCaseSynthesisAction(input: {
     targetMode: 'update_existing',
     target: {
       patientId,
-      caseId: target.resolvedCaseId,
+      caseId: target.resolvedCaseRecordRef,
       ...(target.visitDate ? { visitDate: target.visitDate } : {}),
+      ...(target.episodeStartDate ? { episodeStartDate: target.episodeStartDate } : {}),
       toothNumber: target.toothNumber,
       sourceResolutionPath: 'case_synthesis_update',
     },
@@ -279,7 +283,13 @@ function getCaseTargets(
         ...(resolution.resolvedCaseId
           ? { resolvedCaseId: resolution.resolvedCaseId }
           : {}),
+        ...(resolution.resolvedCaseRecordRef
+          ? { resolvedCaseRecordRef: resolution.resolvedCaseRecordRef }
+          : {}),
         ...(resolution.visitDate ? { visitDate: resolution.visitDate } : {}),
+        ...(resolution.episodeStartDate
+          ? { episodeStartDate: resolution.episodeStartDate }
+          : {}),
         ...(resolution.relatedCaseIds
           ? { relatedCaseIds: resolution.relatedCaseIds }
           : {}),

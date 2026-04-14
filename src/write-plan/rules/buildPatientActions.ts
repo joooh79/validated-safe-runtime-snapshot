@@ -87,6 +87,9 @@ export function buildPatientActions(
     targetMode,
     target: {
       patientId: resolution.resolvedPatientId || claimedPatientId || 'NEW',
+      ...(resolution.resolvedPatientRecordRef
+        ? { entityRef: resolution.resolvedPatientRecordRef }
+        : {}),
       sourceResolutionPath: resolution.status,
     },
     payloadIntent: actionType !== 'no_op_patient' ? {

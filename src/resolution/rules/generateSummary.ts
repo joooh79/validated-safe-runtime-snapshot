@@ -77,6 +77,7 @@ function summarizeVisitAction(visit: VisitResolution): string {
  */
 function summarizeCaseAction(caseRes: CaseResolution): string {
   const targetTeeth = caseRes.targets?.map((target) => target.toothNumber) ?? [];
+  const candidateCount = caseRes.candidateCases?.length ?? 0;
 
   switch (caseRes.status) {
     case 'create_case':
@@ -104,6 +105,10 @@ function summarizeCaseAction(caseRes: CaseResolution): string {
       return 'No case action needed';
 
     case 'unresolved_case_ambiguity':
+      if (candidateCount > 1) {
+        const toothLabel = caseRes.toothNumber ? ` for tooth ${caseRes.toothNumber}` : '';
+        return `Case continuity is ambiguous${toothLabel}. ${candidateCount} candidate cases found.`;
+      }
       return 'Case continuity could not be determined. Blocked.';
 
     default:

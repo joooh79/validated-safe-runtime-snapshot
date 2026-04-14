@@ -31,6 +31,7 @@ export type {
   VisitLookupResult,
   SameDateVisitLookupResult,
   CaseLookupResult,
+  CaseCandidateLookupResult,
   SnapshotLookupResult,
 } from './types.js';
 export { createEmptyLookupBundle } from './types.js';

@@ -99,7 +99,10 @@ export function buildLinkActions(
       target: {
         patientId: patientResolution.resolvedPatientId || 'NEW',
         visitId: visitResolution.resolvedVisitId || 'NEW',
-        caseId: caseTarget.resolvedCaseId || 'NEW',
+        caseId:
+          caseTarget.status === 'create_case'
+            ? 'NEW'
+            : caseTarget.resolvedCaseRecordRef || 'NEW',
         toothNumber: caseTarget.toothNumber,
         sourceResolutionPath: 'visit_to_case_link',
       },
@@ -162,7 +165,10 @@ export function buildLinkActions(
         targetMode: 'update_existing',
         target: {
           patientId: patientResolution.resolvedPatientId || 'NEW',
-          caseId: matchingCaseTarget.resolvedCaseId || 'NEW',
+          caseId:
+            matchingCaseTarget.status === 'create_case'
+              ? 'NEW'
+              : matchingCaseTarget.resolvedCaseRecordRef || 'NEW',
           toothNumber: matchingCaseTarget.toothNumber,
           ...(snapshotAction.target.branch ? { branch: snapshotAction.target.branch } : {}),
           sourceResolutionPath: 'snapshot_to_case_link',
@@ -213,8 +219,14 @@ function getLinkableCaseTargets(
               ...(caseResolution.resolvedCaseId
                 ? { resolvedCaseId: caseResolution.resolvedCaseId }
                 : {}),
+              ...(caseResolution.resolvedCaseRecordRef
+                ? { resolvedCaseRecordRef: caseResolution.resolvedCaseRecordRef }
+                : {}),
               ...(caseResolution.visitDate
                 ? { visitDate: caseResolution.visitDate }
+                : {}),
+              ...(caseResolution.episodeStartDate
+                ? { episodeStartDate: caseResolution.episodeStartDate }
                 : {}),
               reasons: [...caseResolution.reasons],
             },

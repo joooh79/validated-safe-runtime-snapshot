@@ -70,6 +70,43 @@ Rules:
 - later-date same episode => continue_case
 - same tooth but clearly new episode => create_case or split_case
 - same-date correction is primarily visit correction first
+- user input must not require Airtable record refs
+- user input should not require exact episode start date in normal continuation flow
+- `continue_case` should prefer sender-side candidate discovery from patient + tooth + current-state evidence
+- if exactly one safe candidate case is found, sender may auto-resolve `continue_case`
+- if multiple plausible candidates exist, sender must surface candidate selection/confirmation before write
+- if no plausible candidate exists, sender must block or recheck rather than inventing a target case
+- execution-ready continuation requires both business identity and provider record refs to be resolved internally
+
+### Case continuity inputs
+
+User-provided continuity clues may include:
+- `patientId`
+- `toothNumber`
+- `visitDate`
+- `continuityIntent`
+- clinical findings / reasoning that imply continuation
+
+User-provided continuity clues must not require:
+- Airtable `recordId`
+- exact provider link refs
+- exact historical episode start date in ordinary use
+
+### Case continuity lookup responsibility
+
+Sender responsibility:
+- resolve the existing patient row
+- discover candidate Cases for the patient
+- narrow candidates by tooth number and continuity-safe heuristics
+- resolve the Airtable Case row ref when a single safe candidate exists
+- surface candidates for confirmation if more than one plausible Case remains
+
+Preferred candidate ranking signals:
+- same patient
+- same tooth
+- open episode status
+- most recent linked/latest visit
+- strongest continuity-compatible summary / diagnosis evidence
 
 ## Ambiguity rules
 

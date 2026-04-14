@@ -11,6 +11,7 @@ import type { SnapshotBranch } from '../types/core.js';
 export interface PatientLookupResult {
   found: boolean;
   patientId?: string;
+  recordId?: string;
   birthYear?: string | number;
   gender?: string;
   firstVisitDate?: string;
@@ -39,9 +40,27 @@ export interface SameDateVisitLookupResult {
 export interface CaseLookupResult {
   found: boolean;
   caseId?: string;
+  recordId?: string;
   toothNumber?: string;
   episodeIdentifier?: string;
+  episodeStartDate?: string;
+  latestVisitDate?: string;
+  latestSummary?: string;
+  status?: 'open' | 'closed' | 'split' | 'unknown';
   latestStatus?: string;
+  reason?: string;
+}
+
+export interface CaseCandidateLookupResult {
+  caseId?: string;
+  recordId?: string;
+  patientId?: string;
+  toothNumber?: string;
+  episodeIdentifier?: string;
+  episodeStartDate?: string;
+  latestVisitDate?: string;
+  latestSummary?: string;
+  status?: 'open' | 'closed' | 'split' | 'unknown';
   reason?: string;
 }
 
@@ -68,6 +87,14 @@ export interface CurrentStateLookupBundle {
 
   /** Case lookup results indexed by tooth number or episode key */
   caseLookups: Record<string, CaseLookupResult>;
+
+  /**
+   * Optional candidate Case lookup results indexed by tooth number.
+   *
+   * This allows sender-side continuity discovery without requiring the user
+   * to provide exact episode start dates or provider record refs.
+   */
+  caseCandidateLookups?: Record<string, CaseCandidateLookupResult[]>;
 
   /**
    * Explicit snapshot row lookup results for same-date correction targeting.

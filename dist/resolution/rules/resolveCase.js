@@ -54,15 +54,28 @@ export function resolveCase(contract, visitResolution, lookups) {
                     reasons,
                 };
             }
-            // Case ID should be indicated in lookups
-            if (lookups.caseLookups[firstTooth]) {
-                const caseInfo = lookups.caseLookups[firstTooth];
-                if (caseInfo.found && caseInfo.caseId) {
-                    const target = createCaseTarget('continue_case', firstTooth, visitDate, reasons, {
-                        resolvedCaseId: caseInfo.caseId,
-                    });
-                    return finalizeCaseResolution('continue_case', [target], reasons);
-                }
+            const candidates = resolveContinueCaseCandidates(lookups, firstTooth);
+            if (candidates.length === 1) {
+                const candidate = candidates[0];
+                const target = createCaseTarget('continue_case', firstTooth, visitDate, reasons, {
+                    ...(candidate.resolvedCaseId ? { resolvedCaseId: candidate.resolvedCaseId } : {}),
+                    ...(candidate.resolvedCaseRecordRef
+                        ? { resolvedCaseRecordRef: candidate.resolvedCaseRecordRef }
+                        : {}),
+                    ...(candidate.episodeStartDate ? { episodeStartDate: candidate.episodeStartDate } : {}),
+                    ...(candidate.latestVisitDate ? { latestVisitDate: candidate.latestVisitDate } : {}),
+                    ...(candidate.episodeStatus ? { episodeStatus: candidate.episodeStatus } : {}),
+                });
+                return finalizeCaseResolution('continue_case', [target], reasons);
+            }
+            if (candidates.length > 1) {
+                reasons.push('continue_case_multiple_candidates_found');
+                return {
+                    status: 'unresolved_case_ambiguity',
+                    ...caseContext(firstTooth),
+                    candidateCases: candidates,
+                    reasons,
+                };
             }
             // Case not found but intent is to continue => ambiguity
             reasons.push('continue_case_intent_but_case_not_found');
@@ -130,13 +143,29 @@ export function resolveCase(contract, visitResolution, lookups) {
         // No explicit continuity intent => infer from findings
         // If findings reference a single tooth, try to continue existing case
         if (hasSingleTooth && firstTooth) {
-            const caseInfo = lookups.caseLookups[firstTooth];
-            if (caseInfo && caseInfo.found && caseInfo.caseId) {
+            const candidates = resolveContinueCaseCandidates(lookups, firstTooth);
+            if (candidates.length === 1) {
+                const candidate = candidates[0];
                 reasons.push('single_tooth_findings_infer_continue_case');
                 const target = createCaseTarget('continue_case', firstTooth, visitDate, reasons, {
-                    resolvedCaseId: caseInfo.caseId,
+                    ...(candidate.resolvedCaseId ? { resolvedCaseId: candidate.resolvedCaseId } : {}),
+                    ...(candidate.resolvedCaseRecordRef
+                        ? { resolvedCaseRecordRef: candidate.resolvedCaseRecordRef }
+                        : {}),
+                    ...(candidate.episodeStartDate ? { episodeStartDate: candidate.episodeStartDate } : {}),
+                    ...(candidate.latestVisitDate ? { latestVisitDate: candidate.latestVisitDate } : {}),
+                    ...(candidate.episodeStatus ? { episodeStatus: candidate.episodeStatus } : {}),
                 });
                 return finalizeCaseResolution('continue_case', [target], reasons);
+            }
+            if (candidates.length > 1) {
+                reasons.push('single_tooth_findings_multiple_continue_case_candidates');
+                return {
+                    status: 'unresolved_case_ambiguity',
+                    ...caseContext(firstTooth),
+                    candidateCases: candidates,
+                    reasons,
+                };
             }
         }
         if (continuityIntent === 'none' &&
@@ -175,12 +204,45 @@ function finalizeCaseResolution(status, targets, reasons) {
     return {
         status,
         ...(firstTarget?.resolvedCaseId ? { resolvedCaseId: firstTarget.resolvedCaseId } : {}),
+        ...(firstTarget?.resolvedCaseRecordRef
+            ? { resolvedCaseRecordRef: firstTarget.resolvedCaseRecordRef }
+            : {}),
         ...(targets.length === 1 && firstTarget?.toothNumber
             ? { toothNumber: firstTarget.toothNumber }
             : {}),
         ...(firstTarget?.visitDate ? { visitDate: firstTarget.visitDate } : {}),
+        ...(firstTarget?.episodeStartDate ? { episodeStartDate: firstTarget.episodeStartDate } : {}),
         ...(firstTarget?.relatedCaseIds ? { relatedCaseIds: firstTarget.relatedCaseIds } : {}),
         targets,
         reasons,
     };
+}
+function resolveContinueCaseCandidates(lookups, toothNumber) {
+    const explicitCandidates = lookups.caseCandidateLookups?.[toothNumber] ?? [];
+    if (explicitCandidates.length > 0) {
+        return explicitCandidates.map((candidate) => ({
+            toothNumber,
+            ...(candidate.caseId ? { resolvedCaseId: candidate.caseId } : {}),
+            ...(candidate.recordId ? { resolvedCaseRecordRef: candidate.recordId } : {}),
+            ...(candidate.episodeStartDate ? { episodeStartDate: candidate.episodeStartDate } : {}),
+            ...(candidate.latestVisitDate ? { latestVisitDate: candidate.latestVisitDate } : {}),
+            ...(candidate.status ? { episodeStatus: candidate.status } : {}),
+            ...(candidate.latestSummary ? { summaryHint: candidate.latestSummary } : {}),
+            reasons: ['case_candidate_lookup'],
+        }));
+    }
+    const caseInfo = lookups.caseLookups[toothNumber];
+    if (caseInfo?.found && caseInfo.caseId) {
+        return [{
+                toothNumber,
+                resolvedCaseId: caseInfo.caseId,
+                ...(caseInfo.recordId ? { resolvedCaseRecordRef: caseInfo.recordId } : {}),
+                ...(caseInfo.episodeStartDate ? { episodeStartDate: caseInfo.episodeStartDate } : {}),
+                ...(caseInfo.latestVisitDate ? { latestVisitDate: caseInfo.latestVisitDate } : {}),
+                ...(caseInfo.status ? { episodeStatus: caseInfo.status } : {}),
+                ...(caseInfo.latestSummary ? { summaryHint: caseInfo.latestSummary } : {}),
+                reasons: ['case_lookup_match'],
+            }];
+    }
+    return [];
 }

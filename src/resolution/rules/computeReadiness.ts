@@ -32,6 +32,7 @@ import type { InteractionMode, ReadinessStatus } from '../../types/core.js';
 export function computeReadiness(
   patient: PatientResolution,
   visit: VisitResolution,
+  caseResolution: CaseResolution,
   correction: CorrectionResolution,
   ambiguity: AmbiguityResolution,
 ): ReadinessStatus {
@@ -69,6 +70,10 @@ export function computeReadiness(
   }
 
   if (!isVisitResolutionValid(visit)) {
+    return 'blocked_unresolved';
+  }
+
+  if (!hasRequiredRuntimeRefs(patient, caseResolution)) {
     return 'blocked_unresolved';
   }
 
@@ -123,6 +128,27 @@ function isVisitResolutionValid(visit: VisitResolution): boolean {
     visit.status === 'create_new_visit' ||
     visit.status === 'update_existing_visit_same_date'
   );
+}
+
+function hasRequiredRuntimeRefs(
+  patient: PatientResolution,
+  caseResolution: CaseResolution,
+): boolean {
+  if (
+    patient.status === 'resolved_existing_patient' &&
+    !patient.resolvedPatientRecordRef
+  ) {
+    return false;
+  }
+
+  if (
+    caseResolution.status === 'continue_case' &&
+    !caseResolution.resolvedCaseRecordRef
+  ) {
+    return false;
+  }
+
+  return true;
 }
 
 /**

@@ -21,6 +21,7 @@ export function resolvePatient(contract, lookup) {
             return {
                 status: 'resolved_existing_patient',
                 resolvedPatientId: lookup.patientId,
+                ...(lookup.recordId ? { resolvedPatientRecordRef: lookup.recordId } : {}),
                 reasons,
             };
         }
@@ -74,6 +75,7 @@ export function resolvePatient(contract, lookup) {
             return {
                 status: 'resolved_existing_patient',
                 resolvedPatientId: lookup.patientId,
+                ...(lookup.recordId ? { resolvedPatientRecordRef: lookup.recordId } : {}),
                 reasons,
             };
         }
@@ -107,6 +109,7 @@ export function resolvePatient(contract, lookup) {
         return {
             status: 'resolved_existing_patient',
             resolvedPatientId: lookup.patientId,
+            ...(lookup.recordId ? { resolvedPatientRecordRef: lookup.recordId } : {}),
             reasons,
         };
     }

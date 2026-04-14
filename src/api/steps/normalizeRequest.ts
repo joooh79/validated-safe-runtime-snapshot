@@ -12,6 +12,7 @@ import {
   createDryRunAirtableProvider,
   createMockAirtableProvider,
 } from '../../providers/airtable/index.js';
+import { enrichLookupBundle } from './enrichLookupBundle.js';
 
 export async function normalizeRequest(
   request: ApiOrchestrationRequest,
@@ -51,6 +52,7 @@ export async function normalizeRequest(
   );
   normalizeSnapshotLookupCurrentValues(lookupBundle);
   applyInteractionLookupPatch(lookupBundle, request);
+  await enrichLookupBundle(request, normalized, lookupBundle);
 
   const prepared: PreparedApiRequest = {
     requestId: finalRequestId,
@@ -100,6 +102,7 @@ function applyInteractionInput(
 ): void {
   const correctionInput = request.interactionInput?.correction;
   const recheckInput = request.interactionInput?.recheck;
+  const caseSelectionInput = request.interactionInput?.caseSelection;
 
   if (correctionInput && 'doctorConfirmedCorrection' in correctionInput) {
     contract.visitContext.doctorConfirmedCorrection =
@@ -118,6 +121,17 @@ function applyInteractionInput(
   ) {
     contract.patientClues.existingPatientClaim =
       recheckInput.existingPatientClaim;
+  }
+
+  if (caseSelectionInput?.toothNumber) {
+    const targetTooth = contract.findingsContext.toothItems.find(
+      (item) => item.toothNumber === caseSelectionInput.toothNumber,
+    );
+    if (!targetTooth) {
+      contract.warnings.push(
+        `interactionInput.caseSelection tooth ${caseSelectionInput.toothNumber} was not present in findingsContext.`,
+      );
+    }
   }
 }
 
@@ -150,30 +164,83 @@ function applyInteractionLookupPatch(
   request: ApiOrchestrationRequest,
 ): void {
   const recheckInput = request.interactionInput?.recheck;
+  const caseSelectionInput = request.interactionInput?.caseSelection;
 
-  if (!recheckInput?.confirmedPatientId) {
+  if (recheckInput?.confirmedPatientId) {
+    const currentLookup = lookupBundle.patientLookup;
+    const patchedLookup: CurrentStateLookupBundle['patientLookup'] = {
+      found: true,
+      patientId: recheckInput.confirmedPatientId,
+    };
+
+    if (currentLookup.birthYear !== undefined) {
+      patchedLookup.birthYear = currentLookup.birthYear;
+    }
+
+    if (currentLookup.gender !== undefined) {
+      patchedLookup.gender = currentLookup.gender;
+    }
+
+    if (currentLookup.firstVisitDate !== undefined) {
+      patchedLookup.firstVisitDate = currentLookup.firstVisitDate;
+    }
+
+    lookupBundle.patientLookup = patchedLookup;
+  }
+
+  if (!caseSelectionInput?.toothNumber || !caseSelectionInput.selectedCaseId) {
     return;
   }
 
-  const currentLookup = lookupBundle.patientLookup;
-  const patchedLookup: CurrentStateLookupBundle['patientLookup'] = {
+  const candidateEntries = lookupBundle.caseCandidateLookups?.[caseSelectionInput.toothNumber];
+  const selectedCandidate = candidateEntries?.find(
+    (candidate) => candidate.caseId === caseSelectionInput.selectedCaseId,
+  );
+
+  if (!selectedCandidate) {
+    lookupBundle.providerNotes = mergeProviderNotes(
+      lookupBundle.providerNotes,
+      `case selection ${caseSelectionInput.selectedCaseId} did not match any candidate for tooth ${caseSelectionInput.toothNumber}`,
+    );
+    return;
+  }
+
+  lookupBundle.caseLookups[caseSelectionInput.toothNumber] = {
     found: true,
-    patientId: recheckInput.confirmedPatientId,
+    ...(selectedCandidate.caseId ? { caseId: selectedCandidate.caseId } : {}),
+    ...(selectedCandidate.recordId ? { recordId: selectedCandidate.recordId } : {}),
+    ...(selectedCandidate.toothNumber ? { toothNumber: selectedCandidate.toothNumber } : {}),
+    ...(selectedCandidate.episodeIdentifier
+      ? { episodeIdentifier: selectedCandidate.episodeIdentifier }
+      : {}),
+    ...(selectedCandidate.episodeStartDate
+      ? { episodeStartDate: selectedCandidate.episodeStartDate }
+      : {}),
+    ...(selectedCandidate.latestVisitDate
+      ? { latestVisitDate: selectedCandidate.latestVisitDate }
+      : {}),
+    ...(selectedCandidate.latestSummary
+      ? { latestSummary: selectedCandidate.latestSummary }
+      : {}),
+    ...(selectedCandidate.status ? { status: selectedCandidate.status } : {}),
+    reason: 'interaction_case_selection_applied',
   };
 
-  if (currentLookup.birthYear !== undefined) {
-    patchedLookup.birthYear = currentLookup.birthYear;
+  lookupBundle.caseCandidateLookups = {
+    ...(lookupBundle.caseCandidateLookups ?? {}),
+    [caseSelectionInput.toothNumber]: [selectedCandidate],
+  };
+}
+
+function mergeProviderNotes(
+  existing: string | undefined,
+  next: string,
+): string {
+  if (!existing) {
+    return next;
   }
 
-  if (currentLookup.gender !== undefined) {
-    patchedLookup.gender = currentLookup.gender;
-  }
-
-  if (currentLookup.firstVisitDate !== undefined) {
-    patchedLookup.firstVisitDate = currentLookup.firstVisitDate;
-  }
-
-  lookupBundle.patientLookup = patchedLookup;
+  return `${existing}; ${next}`;
 }
 
 function resolveProvider(request: ApiOrchestrationRequest) {
@@ -251,6 +318,15 @@ function cloneLookupBundle(
 
   if (lookupBundle.targetVisitLookup) {
     cloned.targetVisitLookup = { ...lookupBundle.targetVisitLookup };
+  }
+
+  if (lookupBundle.caseCandidateLookups) {
+    cloned.caseCandidateLookups = Object.fromEntries(
+      Object.entries(lookupBundle.caseCandidateLookups).map(([key, value]) => [
+        key,
+        value.map((candidate) => ({ ...candidate })),
+      ]),
+    );
   }
 
   if (lookupBundle.snapshotLookups) {

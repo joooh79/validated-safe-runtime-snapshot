@@ -131,7 +131,10 @@ function buildPatientDisplaySection(
       ),
       buildFieldView(
         'First visit date',
-        action?.payloadIntent?.intendedChanges.firstVisitDate ?? request.contract.visitContext.visitDate ?? '',
+        action?.payloadIntent?.intendedChanges.firstVisitDate ??
+          request.lookupBundle.patientLookup.firstVisitDate ??
+          request.contract.visitContext.visitDate ??
+          '',
       ),
     ],
     readablePreview.patient_summary.representative_fields,

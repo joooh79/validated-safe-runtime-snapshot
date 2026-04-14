@@ -132,7 +132,7 @@ export function createAirtableProvider(
             actionId: action.actionId,
             actionType: action.actionType,
             status: 'success',
-            providerRef: action.target.patientId || action.actionId,
+            providerRef: action.target.entityRef || action.target.patientId || action.actionId,
           };
         }
 

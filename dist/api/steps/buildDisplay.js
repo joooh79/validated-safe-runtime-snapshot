@@ -90,7 +90,10 @@ function buildPatientDisplaySection(request, readablePreview, plan) {
         buildFieldView('Patient ID', action?.target.patientId ?? request.contract.patientClues.patientId ?? ''),
         buildFieldView('Birth year', action?.payloadIntent?.intendedChanges.birthYear ?? request.contract.patientClues.birthYear ?? ''),
         buildFieldView('Gender', action?.payloadIntent?.intendedChanges.gender ?? request.contract.patientClues.genderHint ?? ''),
-        buildFieldView('First visit date', action?.payloadIntent?.intendedChanges.firstVisitDate ?? request.contract.visitContext.visitDate ?? ''),
+        buildFieldView('First visit date', action?.payloadIntent?.intendedChanges.firstVisitDate ??
+            request.lookupBundle.patientLookup.firstVisitDate ??
+            request.contract.visitContext.visitDate ??
+            ''),
     ], readablePreview.patient_summary.representative_fields);
     return {
         label: readablePreview.patient_summary.label,

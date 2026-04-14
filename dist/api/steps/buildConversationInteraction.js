@@ -226,7 +226,10 @@ export function buildConversationInteraction(input) {
                 executeLockedReason: 'Execute is locked until the corrected patient ID is applied and a fresh preview succeeds.',
             };
         case 'hard_stop':
-            return buildInformationalInteraction('hard_stop', resolution.summary.nextStepSummary, 'No safe next step is available. Revise the payload manually if needed.', 'blocked');
+            if (hasCaseCandidateSelectionPath(resolution)) {
+                return buildCaseCandidateSelectionInteraction(resolution);
+            }
+            return buildInformationalInteraction('hard_stop', buildHardStopUserMessage(resolution), buildHardStopAssistantQuestion(resolution), 'blocked');
         case 'blocked_before_write':
             return buildInformationalInteraction('blocked_before_write', plan.warnings[0] ?? resolution.summary.nextStepSummary, 'The plan is blocked before write. Unsupported or unverified content must be revised before previewing again.', 'blocked');
         case 'execution_failed':
@@ -248,6 +251,62 @@ export function buildConversationInteraction(input) {
         case 'executed':
             return buildInformationalInteraction('executed', 'Execution completed from the confirmed preview.', 'The current payload has already been executed.', 'executed');
     }
+}
+function buildCaseCandidateSelectionInteraction(resolution) {
+    const toothNumber = resolution.caseResolution.toothNumber ?? '';
+    const candidates = resolution.caseResolution.candidateCases ?? [];
+    const candidateChoices = candidates
+        .filter((candidate) => candidate.resolvedCaseId)
+        .map((candidate, index) => ({
+        number: index + 1,
+        meaning: `select_case_${candidate.resolvedCaseId}`,
+        label: buildCaseCandidateChoiceLabel(candidate, index),
+        nextTool: 'preview',
+        requiresPreviewAfterChoice: true,
+        requestPatch: {
+            interactionInput: {
+                caseSelection: {
+                    toothNumber,
+                    selectedCaseId: candidate.resolvedCaseId,
+                },
+            },
+        },
+    }));
+    const cancelChoice = {
+        number: candidateChoices.length + 1,
+        meaning: 'cancel',
+        label: '종료',
+        nextTool: 'none',
+        requiresPreviewAfterChoice: false,
+    };
+    return {
+        mode: 'await_user_choice',
+        uiKind: 'correction_required',
+        userMessage: buildHardStopUserMessage(resolution),
+        assistantQuestion: [
+            '계속할 case를 숫자로 선택해 주세요.',
+            ...candidateChoices.map((choice) => `${choice.number}. ${choice.label}`),
+            `${cancelChoice.number}. ${cancelChoice.label}`,
+        ].join('\n'),
+        requiredUserInput: buildRequiredUserInput('case_candidate_selection_choice', [
+            ...candidateChoices.map((choice) => ({
+                number: choice.number,
+                label: choice.label,
+                value: choice.meaning,
+            })),
+            {
+                number: cancelChoice.number,
+                label: cancelChoice.label,
+                value: cancelChoice.meaning,
+            },
+        ]),
+        choiceMap: [...candidateChoices, cancelChoice],
+        nextStepType: 'correction_required',
+        mustPreviewBeforeExecute: true,
+        previewInvalidatedByPayloadChange: true,
+        executeAllowed: false,
+        executeLockedReason: 'Execute is locked until one candidate case is selected and a fresh preview succeeds.',
+    };
 }
 function buildPreviewConfirmationUserMessage(request, preview) {
     if (request.contract.workflowIntent === 'existing_visit_update') {
@@ -280,4 +339,36 @@ function buildInformationalInteraction(uiKind, userMessage, assistantQuestion, n
         executeAllowed: false,
         executeLockedReason: 'Execute is not available in this state.',
     };
+}
+function buildHardStopUserMessage(resolution) {
+    if (resolution.caseResolution.status === 'unresolved_case_ambiguity' &&
+        (resolution.caseResolution.candidateCases?.length ?? 0) > 1) {
+        const toothLabel = resolution.caseResolution.toothNumber
+            ? ` tooth ${resolution.caseResolution.toothNumber}`
+            : '';
+        return `Multiple existing case candidates were found for${toothLabel}. Review the candidate list in the preview before retrying.`;
+    }
+    return resolution.summary.nextStepSummary;
+}
+function buildHardStopAssistantQuestion(resolution) {
+    if (resolution.caseResolution.status === 'unresolved_case_ambiguity' &&
+        (resolution.caseResolution.candidateCases?.length ?? 0) > 1) {
+        return 'Select the intended case in the payload or revise the continuity intent, then preview again.';
+    }
+    return 'No safe next step is available. Revise the payload manually if needed.';
+}
+function hasCaseCandidateSelectionPath(resolution) {
+    return (resolution.caseResolution.status === 'unresolved_case_ambiguity' &&
+        (resolution.caseResolution.candidateCases?.filter((candidate) => candidate.resolvedCaseId).length ?? 0) > 1);
+}
+function buildCaseCandidateChoiceLabel(candidate, index) {
+    const parts = [
+        `후보 ${index + 1}`,
+        candidate.episodeStatus ? candidate.episodeStatus : '',
+        candidate.episodeStartDate ? `start ${candidate.episodeStartDate}` : '',
+        candidate.latestVisitDate ? `latest ${candidate.latestVisitDate}` : '',
+    ].filter(Boolean);
+    return candidate.summaryHint
+        ? `${parts.join(' / ')} / ${candidate.summaryHint}`
+        : parts.join(' / ');
 }

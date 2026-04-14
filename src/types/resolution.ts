@@ -9,6 +9,7 @@ export interface PatientResolution {
     | 'unresolved_ambiguous_patient'
     | 'hard_stop_patient_resolution';
   resolvedPatientId?: string;
+  resolvedPatientRecordRef?: string;
   candidatePatientIds?: string[];
   reasons: string[];
 }
@@ -35,9 +36,12 @@ export interface CaseResolution {
     | 'none'
     | 'unresolved_case_ambiguity';
   resolvedCaseId?: string;
+  resolvedCaseRecordRef?: string;
   toothNumber?: string;
   visitDate?: string;
+  episodeStartDate?: string;
   relatedCaseIds?: string[];
+  candidateCases?: CaseResolutionCandidate[];
   targets?: CaseResolutionTarget[];
   reasons: string[];
 }
@@ -50,8 +54,23 @@ export interface CaseResolutionTarget {
     | 'split_case';
   toothNumber: string;
   resolvedCaseId?: string;
+  resolvedCaseRecordRef?: string;
   visitDate?: string;
+  episodeStartDate?: string;
+  latestVisitDate?: string;
+  episodeStatus?: 'open' | 'closed' | 'split' | 'unknown';
   relatedCaseIds?: string[];
+  reasons: string[];
+}
+
+export interface CaseResolutionCandidate {
+  toothNumber: string;
+  resolvedCaseId?: string;
+  resolvedCaseRecordRef?: string;
+  episodeStartDate?: string;
+  latestVisitDate?: string;
+  episodeStatus?: 'open' | 'closed' | 'split' | 'unknown';
+  summaryHint?: string;
   reasons: string[];
 }
 

@@ -32,6 +32,7 @@ export function resolvePatient(
       return {
         status: 'resolved_existing_patient',
         resolvedPatientId: lookup.patientId,
+        ...(lookup.recordId ? { resolvedPatientRecordRef: lookup.recordId } : {}),
         reasons,
       };
     }
@@ -90,6 +91,7 @@ export function resolvePatient(
       return {
         status: 'resolved_existing_patient',
         resolvedPatientId: lookup.patientId,
+        ...(lookup.recordId ? { resolvedPatientRecordRef: lookup.recordId } : {}),
         reasons,
       };
     }
@@ -126,6 +128,7 @@ export function resolvePatient(
     return {
       status: 'resolved_existing_patient',
       resolvedPatientId: lookup.patientId,
+      ...(lookup.recordId ? { resolvedPatientRecordRef: lookup.recordId } : {}),
       reasons,
     };
   }
