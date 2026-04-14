@@ -1,6 +1,7 @@
 import { isContractInputValid, isNormalizedContractValid } from '../../contract/guards.js';
 import { createEmptyLookupBundle } from '../../resolution/index.js';
 import { createAirtableProvider, createDryRunAirtableProvider, createMockAirtableProvider, } from '../../providers/airtable/index.js';
+import { enrichLookupBundle } from './enrichLookupBundle.js';
 export async function normalizeRequest(request) {
     const contract = await materializeContract(request);
     const finalRequestId = request.requestId ?? contract.requestId;
@@ -24,6 +25,7 @@ export async function normalizeRequest(request) {
     const lookupBundle = cloneLookupBundle(request.lookupBundle ?? createEmptyLookupBundle());
     normalizeSnapshotLookupCurrentValues(lookupBundle);
     applyInteractionLookupPatch(lookupBundle, request);
+    await enrichLookupBundle(request, normalized, lookupBundle);
     const prepared = {
         requestId: finalRequestId,
         contract: normalized,
@@ -55,6 +57,7 @@ async function materializeContract(request) {
 function applyInteractionInput(contract, request) {
     const correctionInput = request.interactionInput?.correction;
     const recheckInput = request.interactionInput?.recheck;
+    const caseSelectionInput = request.interactionInput?.caseSelection;
     if (correctionInput && 'doctorConfirmedCorrection' in correctionInput) {
         contract.visitContext.doctorConfirmedCorrection =
             correctionInput.doctorConfirmedCorrection;
@@ -70,6 +73,12 @@ function applyInteractionInput(contract, request) {
         recheckInput.existingPatientClaim !== undefined) {
         contract.patientClues.existingPatientClaim =
             recheckInput.existingPatientClaim;
+    }
+    if (caseSelectionInput?.toothNumber) {
+        const targetTooth = contract.findingsContext.toothItems.find((item) => item.toothNumber === caseSelectionInput.toothNumber);
+        if (!targetTooth) {
+            contract.warnings.push(`interactionInput.caseSelection tooth ${caseSelectionInput.toothNumber} was not present in findingsContext.`);
+        }
     }
 }
 function applyWorkflowClaimDefaults(contract) {
@@ -89,24 +98,63 @@ function applyWorkflowClaimDefaults(contract) {
 }
 function applyInteractionLookupPatch(lookupBundle, request) {
     const recheckInput = request.interactionInput?.recheck;
-    if (!recheckInput?.confirmedPatientId) {
+    const caseSelectionInput = request.interactionInput?.caseSelection;
+    if (recheckInput?.confirmedPatientId) {
+        const currentLookup = lookupBundle.patientLookup;
+        const patchedLookup = {
+            found: true,
+            patientId: recheckInput.confirmedPatientId,
+        };
+        if (currentLookup.birthYear !== undefined) {
+            patchedLookup.birthYear = currentLookup.birthYear;
+        }
+        if (currentLookup.gender !== undefined) {
+            patchedLookup.gender = currentLookup.gender;
+        }
+        if (currentLookup.firstVisitDate !== undefined) {
+            patchedLookup.firstVisitDate = currentLookup.firstVisitDate;
+        }
+        lookupBundle.patientLookup = patchedLookup;
+    }
+    if (!caseSelectionInput?.toothNumber || !caseSelectionInput.selectedCaseId) {
         return;
     }
-    const currentLookup = lookupBundle.patientLookup;
-    const patchedLookup = {
+    const candidateEntries = lookupBundle.caseCandidateLookups?.[caseSelectionInput.toothNumber];
+    const selectedCandidate = candidateEntries?.find((candidate) => candidate.caseId === caseSelectionInput.selectedCaseId);
+    if (!selectedCandidate) {
+        lookupBundle.providerNotes = mergeProviderNotes(lookupBundle.providerNotes, `case selection ${caseSelectionInput.selectedCaseId} did not match any candidate for tooth ${caseSelectionInput.toothNumber}`);
+        return;
+    }
+    lookupBundle.caseLookups[caseSelectionInput.toothNumber] = {
         found: true,
-        patientId: recheckInput.confirmedPatientId,
+        ...(selectedCandidate.caseId ? { caseId: selectedCandidate.caseId } : {}),
+        ...(selectedCandidate.recordId ? { recordId: selectedCandidate.recordId } : {}),
+        ...(selectedCandidate.toothNumber ? { toothNumber: selectedCandidate.toothNumber } : {}),
+        ...(selectedCandidate.episodeIdentifier
+            ? { episodeIdentifier: selectedCandidate.episodeIdentifier }
+            : {}),
+        ...(selectedCandidate.episodeStartDate
+            ? { episodeStartDate: selectedCandidate.episodeStartDate }
+            : {}),
+        ...(selectedCandidate.latestVisitDate
+            ? { latestVisitDate: selectedCandidate.latestVisitDate }
+            : {}),
+        ...(selectedCandidate.latestSummary
+            ? { latestSummary: selectedCandidate.latestSummary }
+            : {}),
+        ...(selectedCandidate.status ? { status: selectedCandidate.status } : {}),
+        reason: 'interaction_case_selection_applied',
     };
-    if (currentLookup.birthYear !== undefined) {
-        patchedLookup.birthYear = currentLookup.birthYear;
+    lookupBundle.caseCandidateLookups = {
+        ...(lookupBundle.caseCandidateLookups ?? {}),
+        [caseSelectionInput.toothNumber]: [selectedCandidate],
+    };
+}
+function mergeProviderNotes(existing, next) {
+    if (!existing) {
+        return next;
     }
-    if (currentLookup.gender !== undefined) {
-        patchedLookup.gender = currentLookup.gender;
-    }
-    if (currentLookup.firstVisitDate !== undefined) {
-        patchedLookup.firstVisitDate = currentLookup.firstVisitDate;
-    }
-    lookupBundle.patientLookup = patchedLookup;
+    return `${existing}; ${next}`;
 }
 function resolveProvider(request) {
     if (request.provider) {
@@ -167,6 +215,12 @@ function cloneLookupBundle(lookupBundle) {
     };
     if (lookupBundle.targetVisitLookup) {
         cloned.targetVisitLookup = { ...lookupBundle.targetVisitLookup };
+    }
+    if (lookupBundle.caseCandidateLookups) {
+        cloned.caseCandidateLookups = Object.fromEntries(Object.entries(lookupBundle.caseCandidateLookups).map(([key, value]) => [
+            key,
+            value.map((candidate) => ({ ...candidate })),
+        ]));
     }
     if (lookupBundle.snapshotLookups) {
         const snapshotLookups = Object.fromEntries(Object.entries(lookupBundle.snapshotLookups).flatMap(([branch, records]) => records

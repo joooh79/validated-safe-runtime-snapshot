@@ -24,6 +24,9 @@
  */
 import { generateActionId } from '../helpers/idGen.js';
 import { extractWritableSnapshotIntendedChanges, shouldCollapseSnapshotUpdateToNoOp, } from './compareSnapshotPayload.js';
+function getExistingCaseTargetId(caseTarget) {
+    return caseTarget.resolvedCaseRecordRef || caseTarget.resolvedCaseId;
+}
 export function buildSnapshotActions(input) {
     const { planId, visitResolution, caseResolution, workflowIntent, visitActionId, plannedVisitId, branchIntents, snapshotLookups, } = input;
     const actions = [];
@@ -76,14 +79,14 @@ export function buildSnapshotActions(input) {
             target.caseId =
                 caseTarget.status === 'create_case'
                     ? 'NEW'
-                    : caseTarget.resolvedCaseRecordRef || 'NEW';
+                    : getExistingCaseTargetId(caseTarget) || 'NEW';
         }
         else if (caseResolution.status === 'create_case' ||
             caseResolution.status === 'continue_case') {
             target.caseId =
                 caseResolution.status === 'create_case'
                     ? 'NEW'
-                    : caseResolution.resolvedCaseRecordRef || 'NEW';
+                    : getExistingCaseTargetId(caseResolution) || 'NEW';
         }
         if (actionType === 'update_snapshot') {
             const explicitRecordRef = getExplicitSnapshotRecordRef(snapshotLookups, branch, target.toothNumber);

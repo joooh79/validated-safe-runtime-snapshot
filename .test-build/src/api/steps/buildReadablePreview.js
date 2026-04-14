@@ -151,6 +151,10 @@ function buildVisitSummary(request, preview) {
 function buildCaseSummary(request, preview, plan) {
     const representative_fields = [];
     const caseResolution = plan.resolution.caseResolution;
+    const details = [
+        ...(preview.caseBlock.details ?? []),
+        ...buildCaseCandidateDetails(caseResolution),
+    ];
     if (request.contract.continuityIntent && request.contract.continuityIntent !== 'none') {
         representative_fields.push({
             field: 'Continuity intent',
@@ -161,6 +165,12 @@ function buildCaseSummary(request, preview, plan) {
         representative_fields.push({
             field: 'Resolved case ID',
             value: caseResolution.resolvedCaseId,
+        });
+    }
+    if (caseResolution.episodeStartDate) {
+        representative_fields.push({
+            field: 'Episode start date',
+            value: caseResolution.episodeStartDate,
         });
     }
     const targetTeeth = caseResolution.targets?.map((target) => target.toothNumber) ?? [];
@@ -180,12 +190,36 @@ function buildCaseSummary(request, preview, plan) {
             value: caseResolution.toothNumber,
         });
     }
+    if (caseResolution.status === 'unresolved_case_ambiguity' &&
+        (caseResolution.candidateCases?.length ?? 0) > 0) {
+        representative_fields.push({
+            field: 'Candidate case count',
+            value: String(caseResolution.candidateCases.length),
+        });
+    }
     return {
         label: preview.caseBlock.label,
         value: preview.caseBlock.value,
-        details: [...(preview.caseBlock.details ?? [])],
+        details,
         representative_fields,
     };
+}
+function buildCaseCandidateDetails(caseResolution) {
+    if (caseResolution.status !== 'unresolved_case_ambiguity' ||
+        !caseResolution.candidateCases ||
+        caseResolution.candidateCases.length === 0) {
+        return [];
+    }
+    return caseResolution.candidateCases.map((candidate, index) => {
+        const parts = [
+            candidate.resolvedCaseId ? `Case ID ${candidate.resolvedCaseId}` : 'Case ID pending',
+            candidate.episodeStatus ? `status ${candidate.episodeStatus}` : '',
+            candidate.episodeStartDate ? `episode start ${candidate.episodeStartDate}` : '',
+            candidate.latestVisitDate ? `latest visit ${candidate.latestVisitDate}` : '',
+            candidate.summaryHint ? `summary ${candidate.summaryHint}` : '',
+        ].filter(Boolean);
+        return `Candidate ${index + 1}: ${parts.join(' / ')}`;
+    });
 }
 function buildFindingSummaries(request, preview, plan) {
     const actionIndex = new Map();

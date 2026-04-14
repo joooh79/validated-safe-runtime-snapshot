@@ -31,6 +31,12 @@ import type {
 import type { WriteAction, ActionTarget } from '../../types/write-plan.js';
 import { generateActionId } from '../helpers/idGen.js';
 
+function getExistingCaseTargetId(
+  caseTarget: Pick<CaseResolutionTarget, 'resolvedCaseRecordRef' | 'resolvedCaseId'>,
+): string | undefined {
+  return caseTarget.resolvedCaseRecordRef || caseTarget.resolvedCaseId;
+}
+
 export interface BuildCaseActionsInput {
   planId: string;
   patientResolution: PatientResolution;
@@ -150,7 +156,7 @@ function buildPrimaryCaseAction(input: {
     caseId:
       target.status === 'create_case'
         ? 'NEW'
-        : target.resolvedCaseRecordRef || 'NEW',
+        : getExistingCaseTargetId(target) || 'NEW',
     ...(target.visitDate ? { visitDate: target.visitDate } : {}),
     toothNumber: target.toothNumber,
     sourceResolutionPath: target.status,
@@ -220,7 +226,7 @@ function buildCaseSynthesisAction(input: {
   if (
     !hasCaseContent ||
     target.status !== 'continue_case' ||
-    !target.resolvedCaseRecordRef
+    !getExistingCaseTargetId(target)
   ) {
     return null;
   }
@@ -230,7 +236,7 @@ function buildCaseSynthesisAction(input: {
       planId,
       6,
       'update_case_latest_synthesis',
-      target.resolvedCaseId || target.resolvedCaseRecordRef,
+      getExistingCaseTargetId(target)!,
     ),
     actionOrder: 6,
     actionType: 'update_case_latest_synthesis',
@@ -238,7 +244,7 @@ function buildCaseSynthesisAction(input: {
     targetMode: 'update_existing',
     target: {
       patientId,
-      caseId: target.resolvedCaseRecordRef,
+      caseId: getExistingCaseTargetId(target)!,
       ...(target.visitDate ? { visitDate: target.visitDate } : {}),
       ...(target.episodeStartDate ? { episodeStartDate: target.episodeStartDate } : {}),
       toothNumber: target.toothNumber,

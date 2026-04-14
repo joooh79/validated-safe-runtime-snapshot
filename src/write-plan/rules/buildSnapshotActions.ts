@@ -37,6 +37,12 @@ import {
   shouldCollapseSnapshotUpdateToNoOp,
 } from './compareSnapshotPayload.js';
 
+function getExistingCaseTargetId(
+  caseTarget: Pick<CaseResolutionTarget, 'resolvedCaseRecordRef' | 'resolvedCaseId'>,
+): string | undefined {
+  return caseTarget.resolvedCaseRecordRef || caseTarget.resolvedCaseId;
+}
+
 export interface SnapshotBranchIntent {
   branch: SnapshotBranch;
   hasContent: boolean;
@@ -140,7 +146,7 @@ export function buildSnapshotActions(
       target.caseId =
         caseTarget.status === 'create_case'
           ? 'NEW'
-          : caseTarget.resolvedCaseRecordRef || 'NEW';
+          : getExistingCaseTargetId(caseTarget) || 'NEW';
     } else if (
       caseResolution.status === 'create_case' ||
       caseResolution.status === 'continue_case'
@@ -148,7 +154,7 @@ export function buildSnapshotActions(
       target.caseId =
         caseResolution.status === 'create_case'
           ? 'NEW'
-          : caseResolution.resolvedCaseRecordRef || 'NEW';
+          : getExistingCaseTargetId(caseResolution) || 'NEW';
     }
 
     if (actionType === 'update_snapshot') {

@@ -27,6 +27,9 @@
  * - visit-to-patient and snapshot-to-visit explicit links remain disabled
  */
 import { generateActionId } from '../helpers/idGen.js';
+function getExistingCaseTargetId(caseTarget) {
+    return caseTarget.resolvedCaseRecordRef || caseTarget.resolvedCaseId;
+}
 export function buildLinkActions(input) {
     const { planId, patientResolution, visitResolution, caseResolution, visitActionId, caseActionId, caseActionIdsByTooth, snapshotActions, includeExplicitLinks = false, } = input;
     const actions = [];
@@ -59,7 +62,7 @@ export function buildLinkActions(input) {
                 visitId: visitResolution.resolvedVisitId || 'NEW',
                 caseId: caseTarget.status === 'create_case'
                     ? 'NEW'
-                    : caseTarget.resolvedCaseRecordRef || 'NEW',
+                    : getExistingCaseTargetId(caseTarget) || 'NEW',
                 toothNumber: caseTarget.toothNumber,
                 sourceResolutionPath: 'visit_to_case_link',
             },
@@ -110,7 +113,7 @@ export function buildLinkActions(input) {
                     patientId: patientResolution.resolvedPatientId || 'NEW',
                     caseId: matchingCaseTarget.status === 'create_case'
                         ? 'NEW'
-                        : matchingCaseTarget.resolvedCaseRecordRef || 'NEW',
+                        : getExistingCaseTargetId(matchingCaseTarget) || 'NEW',
                     toothNumber: matchingCaseTarget.toothNumber,
                     ...(snapshotAction.target.branch ? { branch: snapshotAction.target.branch } : {}),
                     sourceResolutionPath: 'snapshot_to_case_link',

@@ -23,6 +23,9 @@
  * - split_case and close_case remain blocked until later stages
  */
 import { generateActionId } from '../helpers/idGen.js';
+function getExistingCaseTargetId(caseTarget) {
+    return caseTarget.resolvedCaseRecordRef || caseTarget.resolvedCaseId;
+}
 export function buildCaseActions(input) {
     const { planId, patientResolution, resolution, patientActionId, visitActionId, snapshotActionIds, hasCaseContent, claimedPatientId, } = input;
     const actions = [];
@@ -89,7 +92,9 @@ function buildPrimaryCaseAction(input) {
     const actionId = generateActionId(planId, 3, primaryActionType, target.toothNumber || target.resolvedCaseId || 'case');
     const primaryTarget = {
         patientId,
-        caseId: target.resolvedCaseId || 'NEW',
+        caseId: target.status === 'create_case'
+            ? 'NEW'
+            : getExistingCaseTargetId(target) || 'NEW',
         ...(target.visitDate ? { visitDate: target.visitDate } : {}),
         toothNumber: target.toothNumber,
         sourceResolutionPath: target.status,
@@ -136,19 +141,20 @@ function buildCaseSynthesisAction(input) {
     const { planId, patientId, visitActionId, snapshotActionIds, hasCaseContent, target, primaryActionId, } = input;
     if (!hasCaseContent ||
         target.status !== 'continue_case' ||
-        !target.resolvedCaseId) {
+        !getExistingCaseTargetId(target)) {
         return null;
     }
     return {
-        actionId: generateActionId(planId, 6, 'update_case_latest_synthesis', target.resolvedCaseId),
+        actionId: generateActionId(planId, 6, 'update_case_latest_synthesis', getExistingCaseTargetId(target)),
         actionOrder: 6,
         actionType: 'update_case_latest_synthesis',
         entityType: 'case',
         targetMode: 'update_existing',
         target: {
             patientId,
-            caseId: target.resolvedCaseId,
+            caseId: getExistingCaseTargetId(target),
             ...(target.visitDate ? { visitDate: target.visitDate } : {}),
+            ...(target.episodeStartDate ? { episodeStartDate: target.episodeStartDate } : {}),
             toothNumber: target.toothNumber,
             sourceResolutionPath: 'case_synthesis_update',
         },
@@ -185,7 +191,13 @@ function getCaseTargets(resolution) {
                 ...(resolution.resolvedCaseId
                     ? { resolvedCaseId: resolution.resolvedCaseId }
                     : {}),
+                ...(resolution.resolvedCaseRecordRef
+                    ? { resolvedCaseRecordRef: resolution.resolvedCaseRecordRef }
+                    : {}),
                 ...(resolution.visitDate ? { visitDate: resolution.visitDate } : {}),
+                ...(resolution.episodeStartDate
+                    ? { episodeStartDate: resolution.episodeStartDate }
+                    : {}),
                 ...(resolution.relatedCaseIds
                     ? { relatedCaseIds: resolution.relatedCaseIds }
                     : {}),

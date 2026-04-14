@@ -24,6 +24,9 @@
  */
 import { generateActionId } from '../helpers/idGen.js';
 import { extractWritableSnapshotIntendedChanges, shouldCollapseSnapshotUpdateToNoOp, } from './compareSnapshotPayload.js';
+function getExistingCaseTargetId(caseTarget) {
+    return caseTarget.resolvedCaseRecordRef || caseTarget.resolvedCaseId;
+}
 export function buildSnapshotActions(input) {
     const { planId, visitResolution, caseResolution, workflowIntent, visitActionId, plannedVisitId, branchIntents, snapshotLookups, } = input;
     const actions = [];
@@ -73,11 +76,17 @@ export function buildSnapshotActions(input) {
             target.toothNumber = 'all'; // Canon-confirm-required outside the single-tooth path
         }
         if (caseTarget) {
-            target.caseId = caseTarget.resolvedCaseId || 'NEW';
+            target.caseId =
+                caseTarget.status === 'create_case'
+                    ? 'NEW'
+                    : getExistingCaseTargetId(caseTarget) || 'NEW';
         }
         else if (caseResolution.status === 'create_case' ||
             caseResolution.status === 'continue_case') {
-            target.caseId = caseResolution.resolvedCaseId || 'NEW';
+            target.caseId =
+                caseResolution.status === 'create_case'
+                    ? 'NEW'
+                    : getExistingCaseTargetId(caseResolution) || 'NEW';
         }
         if (actionType === 'update_snapshot') {
             const explicitRecordRef = getExplicitSnapshotRecordRef(snapshotLookups, branch, target.toothNumber);
@@ -154,7 +163,13 @@ function getCaseTargetForTooth(caseResolution, toothNumber) {
             ...(caseResolution.resolvedCaseId
                 ? { resolvedCaseId: caseResolution.resolvedCaseId }
                 : {}),
+            ...(caseResolution.resolvedCaseRecordRef
+                ? { resolvedCaseRecordRef: caseResolution.resolvedCaseRecordRef }
+                : {}),
             ...(caseResolution.visitDate ? { visitDate: caseResolution.visitDate } : {}),
+            ...(caseResolution.episodeStartDate
+                ? { episodeStartDate: caseResolution.episodeStartDate }
+                : {}),
             reasons: [...caseResolution.reasons],
         };
     }

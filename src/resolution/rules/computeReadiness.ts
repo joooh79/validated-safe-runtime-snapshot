@@ -136,14 +136,16 @@ function hasRequiredRuntimeRefs(
 ): boolean {
   if (
     patient.status === 'resolved_existing_patient' &&
-    !patient.resolvedPatientRecordRef
+    !patient.resolvedPatientRecordRef &&
+    !patient.resolvedPatientId
   ) {
     return false;
   }
 
   if (
     caseResolution.status === 'continue_case' &&
-    !caseResolution.resolvedCaseRecordRef
+    !caseResolution.resolvedCaseRecordRef &&
+    !caseResolution.resolvedCaseId
   ) {
     return false;
   }

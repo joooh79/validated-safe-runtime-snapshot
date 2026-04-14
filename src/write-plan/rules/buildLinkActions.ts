@@ -36,6 +36,12 @@ import type {
 import type { WriteAction, ActionTarget } from '../../types/write-plan.js';
 import { generateActionId } from '../helpers/idGen.js';
 
+function getExistingCaseTargetId(
+  caseTarget: Pick<CaseResolutionTarget, 'resolvedCaseRecordRef' | 'resolvedCaseId'>,
+): string | undefined {
+  return caseTarget.resolvedCaseRecordRef || caseTarget.resolvedCaseId;
+}
+
 export interface BuildLinkActionsInput {
   planId: string;
   patientResolution: PatientResolution;
@@ -102,7 +108,7 @@ export function buildLinkActions(
         caseId:
           caseTarget.status === 'create_case'
             ? 'NEW'
-            : caseTarget.resolvedCaseRecordRef || 'NEW',
+            : getExistingCaseTargetId(caseTarget) || 'NEW',
         toothNumber: caseTarget.toothNumber,
         sourceResolutionPath: 'visit_to_case_link',
       },
@@ -168,7 +174,7 @@ export function buildLinkActions(
           caseId:
             matchingCaseTarget.status === 'create_case'
               ? 'NEW'
-              : matchingCaseTarget.resolvedCaseRecordRef || 'NEW',
+              : getExistingCaseTargetId(matchingCaseTarget) || 'NEW',
           toothNumber: matchingCaseTarget.toothNumber,
           ...(snapshotAction.target.branch ? { branch: snapshotAction.target.branch } : {}),
           sourceResolutionPath: 'snapshot_to_case_link',

@@ -70,7 +70,7 @@ export function createAirtableProvider(config, requestExecutor) {
                         actionId: action.actionId,
                         actionType: action.actionType,
                         status: 'success',
-                        providerRef: action.target.patientId || action.actionId,
+                        providerRef: action.target.entityRef || action.target.patientId || action.actionId,
                     };
                 }
                 // Map action to Airtable request based on entity type.

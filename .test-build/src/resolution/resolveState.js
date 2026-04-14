@@ -31,7 +31,7 @@ export async function resolveState(contract, currentStateLookups) {
     // Step 5: Resolve ambiguity
     const ambiguityResolution = resolveAmbiguity(patientResolution, visitResolution, caseResolution, correctionResolution.correctionNeeded);
     // Step 6: Compute readiness
-    const readiness = computeReadiness(patientResolution, visitResolution, correctionResolution, ambiguityResolution);
+    const readiness = computeReadiness(patientResolution, visitResolution, caseResolution, correctionResolution, ambiguityResolution);
     // Step 7: Map to interaction mode
     const interactionMode = computeInteractionMode(readiness, correctionResolution);
     // Step 8: Generate summary

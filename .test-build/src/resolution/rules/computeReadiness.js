@@ -20,7 +20,7 @@
  * - blocked_unresolved if:
  *   - ambiguity remains and no specific correction/recheck/hard-stop applies
  */
-export function computeReadiness(patient, visit, correction, ambiguity) {
+export function computeReadiness(patient, visit, caseResolution, correction, ambiguity) {
     // Hard stops take precedence
     if (visit.status === 'hard_stop_same_date_keep_new_visit_claim') {
         return 'blocked_hard_stop';
@@ -47,6 +47,9 @@ export function computeReadiness(patient, visit, correction, ambiguity) {
         return 'blocked_unresolved';
     }
     if (!isVisitResolutionValid(visit)) {
+        return 'blocked_unresolved';
+    }
+    if (!hasRequiredRuntimeRefs(patient, caseResolution)) {
         return 'blocked_unresolved';
     }
     // All gates clear => ready for write plan
@@ -85,6 +88,18 @@ function isPatientResolutionValid(patient) {
 function isVisitResolutionValid(visit) {
     return (visit.status === 'create_new_visit' ||
         visit.status === 'update_existing_visit_same_date');
+}
+function hasRequiredRuntimeRefs(patient, caseResolution) {
+    if (patient.status === 'resolved_existing_patient' &&
+        !patient.resolvedPatientRecordRef) {
+        return false;
+    }
+    if (caseResolution.status === 'continue_case' &&
+        !caseResolution.resolvedCaseRecordRef &&
+        !caseResolution.resolvedCaseId) {
+        return false;
+    }
+    return true;
 }
 /**
  * Helper: does ambiguity have no specific blocker (i.e., is it just waiting for correction)?
