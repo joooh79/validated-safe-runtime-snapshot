@@ -24,11 +24,12 @@
  */
 import { unsupportedActionError, canonConfirmRequiredError, } from '../errors.js';
 import { normalizeMultiSelectOptions, normalizeNumber, normalizeSelectOption, normalizeString, } from './normalizeAirtableValue.js';
+import { buildLinkedRecordCell } from './resolveLinkedRecordValue.js';
 /**
  * Map snapshot action to Airtable request
  */
 export function mapSnapshotAction(input) {
-    const { action, registry } = input;
+    const { action, registry, resolvedRefs, requireRuntimeRefs = false, } = input;
     // Only handle snapshot actions
     if (action.entityType !== 'snapshot') {
         return {
@@ -135,6 +136,21 @@ export function mapSnapshotAction(input) {
             // keeps Case association fail-closed until Case activation semantics are
             // implemented explicitly.
             if (visitId) {
+                const visitLinkValue = buildLinkedRecordCell({
+                    dependencyActionId: action.dependsOnActionIds[0],
+                    resolvedRefs,
+                    requireRuntimeRefs,
+                    fallbackRef: action.target.entityRef,
+                    canonField: `${tableName}.Visit ID`,
+                    table: tableName,
+                    missingRefMessage: 'create_snapshot requires a resolved visit record reference at execution time',
+                });
+                if (isAdapterError(visitLinkValue)) {
+                    return {
+                        success: false,
+                        error: visitLinkValue,
+                    };
+                }
                 fields[branch === 'PLAN'
                     ? registry.planFields.visitId.fieldName
                     : branch === 'DR'
@@ -145,7 +161,7 @@ export function mapSnapshotAction(input) {
                                 ? registry.radiographicFindingsFields.visitId.fieldName
                                 : branch === 'OP'
                                     ? registry.operativeFindingsFields.visitId.fieldName
-                                    : registry.preOpFields.visitId.fieldName] = visitId;
+                                    : registry.preOpFields.visitId.fieldName] = visitLinkValue;
             }
             // Tooth number
             if (toothNumber) {
@@ -1289,4 +1305,7 @@ function isSafeOperativeFindingsUpdate(action) {
 }
 function hasExplicitExistingSnapshotTarget(action) {
     return action.target.entityRef !== undefined && action.target.entityRef !== '' && action.target.entityRef !== 'NEW';
+}
+function isAdapterError(value) {
+    return typeof value === 'object' && value !== null && 'type' in value;
 }

@@ -24,12 +24,15 @@ import type { WriteAction } from '../../../types/write-plan.js';
 import type { AirtableCreateRequest, AirtableUpdateRequest } from '../types.js';
 import type { MappingRegistry } from '../mappingRegistry.js';
 import type { AirtableAdapterError } from '../types.js';
-import { unsupportedActionError, canonConfirmRequiredError } from '../errors.js';
+import { unsupportedActionError } from '../errors.js';
 import { normalizeDate, normalizeString, normalizeNumber } from './normalizeAirtableValue.js';
+import { buildLinkedRecordCell } from './resolveLinkedRecordValue.js';
 
 export interface MapVisitActionInput {
   action: WriteAction;
   registry: MappingRegistry;
+  resolvedRefs?: Record<string, string>;
+  requireRuntimeRefs?: boolean;
 }
 
 export type MapVisitActionOutput =
@@ -40,7 +43,12 @@ export type MapVisitActionOutput =
  * Map visit action to Airtable request
  */
 export function mapVisitAction(input: MapVisitActionInput): MapVisitActionOutput {
-  const { action, registry } = input;
+  const {
+    action,
+    registry,
+    resolvedRefs,
+    requireRuntimeRefs = false,
+  } = input;
 
   // Only handle visit actions
   if (action.entityType !== 'visit') {
@@ -68,7 +76,32 @@ export function mapVisitAction(input: MapVisitActionInput): MapVisitActionOutput
       if ('patientId' in intended) {
         const patientId = intended.patientId;
         if (typeof patientId === 'string') {
-          fields[registry.visitFields.patientId.fieldName] = patientId;
+          const patientLinkValue = buildLinkedRecordCell({
+            dependencyActionId: action.dependsOnActionIds[0],
+            resolvedRefs,
+            requireRuntimeRefs,
+            fallbackRef: action.target.patientId ?? patientId,
+            canonField: 'Visits.Patient ID',
+            table: 'Visits',
+            missingRefMessage:
+              'create_visit requires a resolved patient record reference at execution time',
+          });
+
+          if (isAdapterError(patientLinkValue)) {
+            return {
+              success: false,
+              error: patientLinkValue,
+            };
+          }
+
+          fields[registry.visitFields.patientId.fieldName] = patientLinkValue;
+        }
+      }
+
+      if ('visitId' in intended) {
+        const visitId = intended.visitId;
+        if (typeof visitId === 'string' && visitId.trim()) {
+          fields[registry.visitFields.visitId.fieldName] = visitId.trim();
         }
       }
 
@@ -196,4 +229,8 @@ export function mapVisitAction(input: MapVisitActionInput): MapVisitActionOutput
         error: unsupportedActionError(action.actionType, `unknown visit action`),
       };
   }
+}
+
+function isAdapterError(value: unknown): value is AirtableAdapterError {
+  return typeof value === 'object' && value !== null && 'type' in value;
 }

@@ -24,7 +24,7 @@
  */
 import { generateActionId } from '../helpers/idGen.js';
 export function buildCaseActions(input) {
-    const { planId, patientResolution, resolution, visitActionId, snapshotActionIds, hasCaseContent, claimedPatientId, } = input;
+    const { planId, patientResolution, resolution, patientActionId, visitActionId, snapshotActionIds, hasCaseContent, claimedPatientId, } = input;
     const actions = [];
     const caseTargets = getCaseTargets(resolution);
     if (resolution.status === 'none' ||
@@ -37,6 +37,7 @@ export function buildCaseActions(input) {
         const primaryAction = buildPrimaryCaseAction({
             planId,
             patientId: resolvedOrClaimedPatientId,
+            patientActionId,
             visitActionId,
             resolution,
             target: caseTarget,
@@ -60,7 +61,7 @@ export function buildCaseActions(input) {
     return actions;
 }
 function buildPrimaryCaseAction(input) {
-    const { planId, patientId, visitActionId, resolution, target } = input;
+    const { planId, patientId, patientActionId, visitActionId, resolution, target } = input;
     let primaryActionType = null;
     let primaryTargetMode;
     switch (target.status) {
@@ -119,7 +120,7 @@ function buildPrimaryCaseAction(input) {
             intendedChanges: {},
             guardedFields: ['case_id', 'date_created'],
         },
-        dependsOnActionIds: [visitActionId],
+        dependsOnActionIds: [patientActionId, visitActionId],
         blockers: [],
         safety: {
             duplicateSafe: false,

@@ -12,9 +12,11 @@
  * - ordering position is 2 (after patient)
  */
 import { generateActionId } from '../helpers/idGen.js';
+import { buildDeterministicVisitId } from '../helpers/visitId.js';
 export function buildVisitActions(input) {
     const { planId, resolution, patientActionId, hasVisitLevelChanges, hasDependentSnapshotWrites, claimedPatientId, visitDate, visitType, chiefComplaint, painLevel, } = input;
     const actions = [];
+    const deterministicVisitId = buildDeterministicVisitId(claimedPatientId, visitDate);
     // Determine action type based on resolution status
     let actionType;
     let targetMode;
@@ -52,7 +54,9 @@ export function buildVisitActions(input) {
     }
     const actionId = generateActionId(planId, 2, actionType, 'visit');
     const target = {
-        visitId: resolution.resolvedVisitId || 'NEW',
+        visitId: resolution.resolvedVisitId ||
+            (actionType === 'create_visit' ? deterministicVisitId : undefined) ||
+            'NEW',
         sourceResolutionPath: resolution.status,
     };
     // Add context about same-date match if relevant
@@ -70,6 +74,7 @@ export function buildVisitActions(input) {
             intendedChanges: buildVisitIntendedChanges({
                 actionType,
                 claimedPatientId,
+                visitId: deterministicVisitId,
                 visitDate,
                 visitType,
                 chiefComplaint,
@@ -100,6 +105,11 @@ function buildVisitIntendedChanges(input) {
         typeof input.claimedPatientId === 'string' &&
         input.claimedPatientId.trim()) {
         intendedChanges.patientId = input.claimedPatientId.trim();
+    }
+    if (input.actionType === 'create_visit' &&
+        typeof input.visitId === 'string' &&
+        input.visitId.trim()) {
+        intendedChanges.visitId = input.visitId.trim();
     }
     if (input.actionType === 'create_visit' &&
         typeof input.visitDate === 'string' &&

@@ -35,6 +35,7 @@ export interface BuildCaseActionsInput {
   planId: string;
   patientResolution: PatientResolution;
   resolution: CaseResolution;
+  patientActionId: string;
   visitActionId: string;
   snapshotActionIds: string[];
   hasCaseContent: boolean;
@@ -48,6 +49,7 @@ export function buildCaseActions(
     planId,
     patientResolution,
     resolution,
+    patientActionId,
     visitActionId,
     snapshotActionIds,
     hasCaseContent,
@@ -72,6 +74,7 @@ export function buildCaseActions(
     const primaryAction = buildPrimaryCaseAction({
       planId,
       patientId: resolvedOrClaimedPatientId,
+      patientActionId,
       visitActionId,
       resolution,
       target: caseTarget,
@@ -102,11 +105,12 @@ export function buildCaseActions(
 function buildPrimaryCaseAction(input: {
   planId: string;
   patientId: string;
+  patientActionId: string;
   visitActionId: string;
   resolution: CaseResolution;
   target: CaseResolutionTarget;
 }): WriteAction | null {
-  const { planId, patientId, visitActionId, resolution, target } = input;
+  const { planId, patientId, patientActionId, visitActionId, resolution, target } = input;
   let primaryActionType: WriteAction['actionType'] | null = null;
   let primaryTargetMode: 'create_new' | 'update_existing' | 'no_op';
 
@@ -176,7 +180,7 @@ function buildPrimaryCaseAction(input: {
       intendedChanges: {},
       guardedFields: ['case_id', 'date_created'],
     },
-    dependsOnActionIds: [visitActionId],
+    dependsOnActionIds: [patientActionId, visitActionId],
     blockers: [],
     safety: {
       duplicateSafe: false,

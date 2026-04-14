@@ -15,6 +15,7 @@
 import type { VisitResolution } from '../../types/resolution.js';
 import type { WriteAction, ActionTarget } from '../../types/write-plan.js';
 import { generateActionId } from '../helpers/idGen.js';
+import { buildDeterministicVisitId } from '../helpers/visitId.js';
 
 export interface BuildVisitActionsInput {
   planId: string;
@@ -46,6 +47,10 @@ export function buildVisitActions(
   } = input;
 
   const actions: WriteAction[] = [];
+  const deterministicVisitId = buildDeterministicVisitId(
+    claimedPatientId,
+    visitDate,
+  );
 
   // Determine action type based on resolution status
   let actionType: WriteAction['actionType'];
@@ -88,7 +93,10 @@ export function buildVisitActions(
   const actionId = generateActionId(planId, 2, actionType, 'visit');
 
   const target: ActionTarget = {
-    visitId: resolution.resolvedVisitId || 'NEW',
+    visitId:
+      resolution.resolvedVisitId ||
+      (actionType === 'create_visit' ? deterministicVisitId : undefined) ||
+      'NEW',
     sourceResolutionPath: resolution.status,
   };
 
@@ -108,6 +116,7 @@ export function buildVisitActions(
       intendedChanges: buildVisitIntendedChanges({
         actionType,
         claimedPatientId,
+        visitId: deterministicVisitId,
         visitDate,
         visitType,
         chiefComplaint,
@@ -134,6 +143,7 @@ export function buildVisitActions(
 function buildVisitIntendedChanges(input: {
   actionType: WriteAction['actionType'];
   claimedPatientId?: string | undefined;
+  visitId?: string | undefined;
   visitDate?: string | undefined;
   visitType?: string | undefined;
   chiefComplaint?: string | undefined;
@@ -154,6 +164,14 @@ function buildVisitIntendedChanges(input: {
     input.claimedPatientId.trim()
   ) {
     intendedChanges.patientId = input.claimedPatientId.trim();
+  }
+
+  if (
+    input.actionType === 'create_visit' &&
+    typeof input.visitId === 'string' &&
+    input.visitId.trim()
+  ) {
+    intendedChanges.visitId = input.visitId.trim();
   }
 
   if (

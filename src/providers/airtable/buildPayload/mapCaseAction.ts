@@ -22,13 +22,15 @@ import {
 } from '../errors.js';
 import {
   normalizeDate,
-  normalizeLinkedRef,
   normalizeString,
 } from './normalizeAirtableValue.js';
+import { buildLinkedRecordCell } from './resolveLinkedRecordValue.js';
 
 export interface MapCaseActionInput {
   action: WriteAction;
   registry: MappingRegistry;
+  resolvedRefs?: Record<string, string>;
+  requireRuntimeRefs?: boolean;
 }
 
 export type MapCaseActionOutput =
@@ -36,7 +38,12 @@ export type MapCaseActionOutput =
   | { success: false; error: AirtableAdapterError };
 
 export function mapCaseAction(input: MapCaseActionInput): MapCaseActionOutput {
-  const { action, registry } = input;
+  const {
+    action,
+    registry,
+    resolvedRefs,
+    requireRuntimeRefs = false,
+  } = input;
 
   if (action.entityType !== 'case') {
     return {
@@ -47,7 +54,12 @@ export function mapCaseAction(input: MapCaseActionInput): MapCaseActionOutput {
 
   switch (action.actionType) {
     case 'create_case':
-      return mapCreateCase(action, registry);
+      return mapCreateCase(
+        action,
+        registry,
+        resolvedRefs,
+        requireRuntimeRefs,
+      );
 
     case 'update_case_latest_synthesis':
       return mapUpdateCaseLatestSynthesis(action, registry);
@@ -83,9 +95,11 @@ export function mapCaseAction(input: MapCaseActionInput): MapCaseActionOutput {
 function mapCreateCase(
   action: WriteAction,
   registry: MappingRegistry,
+  resolvedRefs?: Record<string, string>,
+  requireRuntimeRefs = false,
 ): MapCaseActionOutput {
-  const patientId = normalizeLinkedRef(action.target.patientId);
-  if (isAdapterError(patientId)) {
+  const patientIdentity = normalizeString(action.target.patientId);
+  if (isAdapterError(patientIdentity)) {
     return {
       success: false,
       error: canonConfirmRequiredError(
@@ -96,7 +110,7 @@ function mapCreateCase(
     };
   }
 
-  if (patientId === 'NEW') {
+  if (patientIdentity === 'NEW') {
     return {
       success: false,
       error: canonConfirmRequiredError(
@@ -131,8 +145,26 @@ function mapCreateCase(
     };
   }
 
-  const caseId = buildCaseId(patientId, toothNumber, episodeStartDate);
-  const latestVisitId = buildVisitId(patientId, episodeStartDate);
+  const patientLinkValue = buildLinkedRecordCell({
+    dependencyActionId: action.dependsOnActionIds[0],
+    resolvedRefs,
+    requireRuntimeRefs,
+    fallbackRef: action.target.patientId,
+    canonField: 'Cases.Patient ID',
+    table: 'Cases',
+    missingRefMessage:
+      'create_case requires a resolved patient record reference at execution time',
+  });
+
+  if (isAdapterError(patientLinkValue)) {
+    return {
+      success: false,
+      error: patientLinkValue,
+    };
+  }
+
+  const caseId = buildCaseId(patientIdentity, toothNumber, episodeStartDate);
+  const latestVisitId = buildVisitId(patientIdentity, episodeStartDate);
 
   return {
     success: true,
@@ -140,7 +172,7 @@ function mapCreateCase(
       table: 'Cases',
       fields: {
         [registry.caseFields.caseId.fieldName]: caseId,
-        [registry.caseFields.patientId.fieldName]: patientId,
+        [registry.caseFields.patientId.fieldName]: patientLinkValue,
         [registry.caseFields.toothNumber.fieldName]: toothNumber,
         [registry.caseFields.episodeStartDate.fieldName]: episodeStartDate,
         [registry.caseFields.episodeStatus.fieldName]:
@@ -167,7 +199,7 @@ function mapUpdateCaseLatestSynthesis(
     };
   }
 
-  const patientId = normalizeLinkedRef(action.target.patientId);
+  const patientId = normalizeString(action.target.patientId);
   const visitDate = normalizeDate(action.target.visitDate);
   if (isAdapterError(patientId) || isAdapterError(visitDate)) {
     return {

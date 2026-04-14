@@ -21,11 +21,12 @@
  */
 import { unsupportedActionError } from '../errors.js';
 import { normalizeDate, normalizeString, normalizeNumber } from './normalizeAirtableValue.js';
+import { buildLinkedRecordCell } from './resolveLinkedRecordValue.js';
 /**
  * Map visit action to Airtable request
  */
 export function mapVisitAction(input) {
-    const { action, registry } = input;
+    const { action, registry, resolvedRefs, requireRuntimeRefs = false, } = input;
     // Only handle visit actions
     if (action.entityType !== 'visit') {
         return {
@@ -49,7 +50,28 @@ export function mapVisitAction(input) {
             if ('patientId' in intended) {
                 const patientId = intended.patientId;
                 if (typeof patientId === 'string') {
-                    fields[registry.visitFields.patientId.fieldName] = patientId;
+                    const patientLinkValue = buildLinkedRecordCell({
+                        dependencyActionId: action.dependsOnActionIds[0],
+                        resolvedRefs,
+                        requireRuntimeRefs,
+                        fallbackRef: action.target.patientId ?? patientId,
+                        canonField: 'Visits.Patient ID',
+                        table: 'Visits',
+                        missingRefMessage: 'create_visit requires a resolved patient record reference at execution time',
+                    });
+                    if (isAdapterError(patientLinkValue)) {
+                        return {
+                            success: false,
+                            error: patientLinkValue,
+                        };
+                    }
+                    fields[registry.visitFields.patientId.fieldName] = patientLinkValue;
+                }
+            }
+            if ('visitId' in intended) {
+                const visitId = intended.visitId;
+                if (typeof visitId === 'string' && visitId.trim()) {
+                    fields[registry.visitFields.visitId.fieldName] = visitId.trim();
                 }
             }
             // Required: Visit date
@@ -163,4 +185,7 @@ export function mapVisitAction(input) {
                 error: unsupportedActionError(action.actionType, `unknown visit action`),
             };
     }
+}
+function isAdapterError(value) {
+    return typeof value === 'object' && value !== null && 'type' in value;
 }

@@ -23,6 +23,7 @@
  */
 import { canonConfirmRequiredError, unsupportedActionError, } from '../errors.js';
 import { normalizeLinkedRef } from './normalizeAirtableValue.js';
+import { toLinkedRecordCell } from './resolveLinkedRecordValue.js';
 export function mapLinkAction(input) {
     const { action } = input;
     if (action.entityType !== 'link') {
@@ -67,7 +68,7 @@ function mapVisitToCaseLink(input) {
             table: 'Visits',
             recordId: visitRecordId,
             fields: {
-                [registry.visitLinkFields.cases.fieldName]: caseRecordId,
+                [registry.visitLinkFields.cases.fieldName]: toLinkedRecordCell(caseRecordId),
             },
         },
     };
@@ -121,7 +122,7 @@ function mapSnapshotToCaseLink(input) {
                                 ? registry.snapshotCaseLinkFields.RAD.fieldName
                                 : action.target.branch === 'OP'
                                     ? registry.snapshotCaseLinkFields.OP.fieldName
-                                    : registry.snapshotCaseLinkFields.PRE.fieldName]: caseRecordId,
+                                    : registry.snapshotCaseLinkFields.PRE.fieldName]: toLinkedRecordCell(caseRecordId),
             },
         },
     };

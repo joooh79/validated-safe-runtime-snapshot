@@ -36,6 +36,7 @@ import { buildLinkActions } from './rules/buildLinkActions.js';
 import { buildPlanWarnings } from './rules/buildPlanWarnings.js';
 import { buildPreviewSummary } from './rules/buildPreviewSummary.js';
 import { computePlanReadiness } from './rules/computePlanReadiness.js';
+import { buildDeterministicVisitId } from './helpers/visitId.js';
 /**
  * Build a WritePlan from a StateResolutionResult
  *
@@ -47,6 +48,7 @@ export async function buildWritePlan(input) {
     const planId = `plan_${input.resolution.requestId.slice(0, 8)}`;
     const branchIntents = snapshotBranchIntents ||
         inferSnapshotBranchIntents(resolution);
+    const plannedVisitId = buildDeterministicVisitId(patientClues?.patientId, visitContext?.visitDate);
     const hasSnapshotContent = branchIntents.some((intent) => intent.hasContent);
     const hasSnapshotWrites = branchIntents.some((intent) => snapshotBranchIntentProducesWrite(intent, snapshotLookups));
     // Step 1: Build patient actions
@@ -84,6 +86,7 @@ export async function buildWritePlan(input) {
         planId,
         patientResolution: resolution.patient,
         resolution: resolution.caseResolution,
+        patientActionId: patientActions[0].actionId,
         visitActionId: visitActions[0].actionId,
         snapshotActionIds: [], // Will be filled after snapshot actions
         hasCaseContent: hasSnapshotContent && resolution.caseResolution.status !== 'none',
@@ -96,6 +99,7 @@ export async function buildWritePlan(input) {
         caseResolution: resolution.caseResolution,
         workflowIntent: resolution.workflowIntent,
         visitActionId: visitActions[0].actionId,
+        plannedVisitId,
         branchIntents,
         snapshotLookups,
     });
@@ -105,6 +109,7 @@ export async function buildWritePlan(input) {
         planId,
         patientResolution: resolution.patient,
         resolution: resolution.caseResolution,
+        patientActionId: patientActions[0].actionId,
         visitActionId: visitActions[0].actionId,
         snapshotActionIds,
         hasCaseContent: hasSnapshotContent && resolution.caseResolution.status !== 'none',

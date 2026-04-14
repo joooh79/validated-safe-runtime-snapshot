@@ -16,7 +16,7 @@
     "preapi:examples": "npm run build:validation",
     "api:examples": "node .validation-build/src/api/__fixtures__/cli.js",
     "pretest": "npm run build:test",
-    "test": "node --test .test-build/test/server.test.js .test-build/test/auth/verifyProxyRequest.test.js .test-build/test/api/buildReadablePreview.test.js .test-build/test/api/orchestrateRequest.test.js .test-build/test/ui/controller.test.js",
+    "test": "node --test .test-build/test/server.test.js .test-build/test/auth/verifyProxyRequest.test.js .test-build/test/api/buildReadablePreview.test.js .test-build/test/api/orchestrateRequest.test.js .test-build/test/ui/controller.test.js .test-build/test/providers/airtableExecution.test.js",
     "start": "node dist/server.js"
   },
   "devDependencies": {

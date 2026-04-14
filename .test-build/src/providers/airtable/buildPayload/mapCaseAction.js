@@ -12,9 +12,10 @@
  * - explicit Case/Visit/Snapshot link writes beyond the minimal active scope
  */
 import { canonConfirmRequiredError, unsupportedActionError, } from '../errors.js';
-import { normalizeDate, normalizeLinkedRef, normalizeString, } from './normalizeAirtableValue.js';
+import { normalizeDate, normalizeString, } from './normalizeAirtableValue.js';
+import { buildLinkedRecordCell } from './resolveLinkedRecordValue.js';
 export function mapCaseAction(input) {
-    const { action, registry } = input;
+    const { action, registry, resolvedRefs, requireRuntimeRefs = false, } = input;
     if (action.entityType !== 'case') {
         return {
             success: false,
@@ -23,7 +24,7 @@ export function mapCaseAction(input) {
     }
     switch (action.actionType) {
         case 'create_case':
-            return mapCreateCase(action, registry);
+            return mapCreateCase(action, registry, resolvedRefs, requireRuntimeRefs);
         case 'update_case_latest_synthesis':
             return mapUpdateCaseLatestSynthesis(action, registry);
         case 'split_case':
@@ -47,15 +48,15 @@ export function mapCaseAction(input) {
             };
     }
 }
-function mapCreateCase(action, registry) {
-    const patientId = normalizeLinkedRef(action.target.patientId);
-    if (isAdapterError(patientId)) {
+function mapCreateCase(action, registry, resolvedRefs, requireRuntimeRefs = false) {
+    const patientIdentity = normalizeString(action.target.patientId);
+    if (isAdapterError(patientIdentity)) {
         return {
             success: false,
             error: canonConfirmRequiredError('Cases.Patient ID', 'Cases', 'create_case currently requires a resolved patient identifier; create_case after unresolved/new patient creation remains blocked'),
         };
     }
-    if (patientId === 'NEW') {
+    if (patientIdentity === 'NEW') {
         return {
             success: false,
             error: canonConfirmRequiredError('Cases.Patient ID', 'Cases', 'create_case currently requires an existing resolved patient identifier; chained create_patient -> create_case linking is still deferred'),
@@ -75,15 +76,30 @@ function mapCreateCase(action, registry) {
             error: canonConfirmRequiredError('Cases.Episode start date', 'Cases', 'create_case requires an exact visit/episode start date in YYYY-MM-DD format'),
         };
     }
-    const caseId = buildCaseId(patientId, toothNumber, episodeStartDate);
-    const latestVisitId = buildVisitId(patientId, episodeStartDate);
+    const patientLinkValue = buildLinkedRecordCell({
+        dependencyActionId: action.dependsOnActionIds[0],
+        resolvedRefs,
+        requireRuntimeRefs,
+        fallbackRef: action.target.patientId,
+        canonField: 'Cases.Patient ID',
+        table: 'Cases',
+        missingRefMessage: 'create_case requires a resolved patient record reference at execution time',
+    });
+    if (isAdapterError(patientLinkValue)) {
+        return {
+            success: false,
+            error: patientLinkValue,
+        };
+    }
+    const caseId = buildCaseId(patientIdentity, toothNumber, episodeStartDate);
+    const latestVisitId = buildVisitId(patientIdentity, episodeStartDate);
     return {
         success: true,
         request: {
             table: 'Cases',
             fields: {
                 [registry.caseFields.caseId.fieldName]: caseId,
-                [registry.caseFields.patientId.fieldName]: patientId,
+                [registry.caseFields.patientId.fieldName]: patientLinkValue,
                 [registry.caseFields.toothNumber.fieldName]: toothNumber,
                 [registry.caseFields.episodeStartDate.fieldName]: episodeStartDate,
                 [registry.caseFields.episodeStatus.fieldName]: registry.episodeStatusOptions.open,
@@ -100,7 +116,7 @@ function mapUpdateCaseLatestSynthesis(action, registry) {
             error: canonConfirmRequiredError('Cases.Case ID', 'Cases', 'case continuation update requires a resolved existing case identifier'),
         };
     }
-    const patientId = normalizeLinkedRef(action.target.patientId);
+    const patientId = normalizeString(action.target.patientId);
     const visitDate = normalizeDate(action.target.visitDate);
     if (isAdapterError(patientId) || isAdapterError(visitDate)) {
         return {

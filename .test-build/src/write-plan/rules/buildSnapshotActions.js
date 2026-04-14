@@ -25,7 +25,7 @@
 import { generateActionId } from '../helpers/idGen.js';
 import { extractWritableSnapshotIntendedChanges, shouldCollapseSnapshotUpdateToNoOp, } from './compareSnapshotPayload.js';
 export function buildSnapshotActions(input) {
-    const { planId, visitResolution, caseResolution, workflowIntent, visitActionId, branchIntents, snapshotLookups, } = input;
+    const { planId, visitResolution, caseResolution, workflowIntent, visitActionId, plannedVisitId, branchIntents, snapshotLookups, } = input;
     const actions = [];
     let snapshotOrder = 4;
     for (const branchIntent of branchIntents) {
@@ -56,7 +56,7 @@ export function buildSnapshotActions(input) {
         const actionId = generateActionId(planId, snapshotOrder, actionType, `snapshot_${branch}`);
         const target = {
             branch,
-            visitId: visitResolution.resolvedVisitId || 'NEW',
+            visitId: visitResolution.resolvedVisitId || plannedVisitId || 'NEW',
             sourceResolutionPath: `snapshot_${branch}_${visitResolution.status}`,
         };
         const caseTarget = getCaseTargetForTooth(caseResolution, toothNumber);

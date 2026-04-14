@@ -52,6 +52,7 @@ export interface BuildSnapshotActionsInput {
   caseResolution: CaseResolution;
   workflowIntent: WorkflowIntent;
   visitActionId: string;
+  plannedVisitId?: string | undefined;
   branchIntents: SnapshotBranchIntent[];
   snapshotLookups?: CurrentStateLookupBundle['snapshotLookups'];
 }
@@ -65,6 +66,7 @@ export function buildSnapshotActions(
     caseResolution,
     workflowIntent,
     visitActionId,
+    plannedVisitId,
     branchIntents,
     snapshotLookups,
   } = input;
@@ -118,7 +120,7 @@ export function buildSnapshotActions(
 
     const target: ActionTarget = {
       branch,
-      visitId: visitResolution.resolvedVisitId || 'NEW',
+      visitId: visitResolution.resolvedVisitId || plannedVisitId || 'NEW',
       sourceResolutionPath: `snapshot_${branch}_${visitResolution.status}`,
     };
 

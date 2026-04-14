@@ -28,9 +28,9 @@ export function shouldSkipAction(action, priorResults) {
         if (depResult.status === 'failed') {
             return `upstream dependency failed: ${depId}`;
         }
-        // Note: skipped dependencies might be recoverable; we allow proceeding
-        // if the dependency was explicitly skipped (e.g., no-op case)
-        // Provider will decide if action can still proceed without ref
+        if (depResult.status === 'skipped') {
+            return `upstream dependency failed: ${depId}`;
+        }
     }
     // All dependencies met; action can proceed
     return undefined;

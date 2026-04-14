@@ -65,6 +65,14 @@ export function createAirtableProvider(config, requestExecutor) {
                         status: 'no_op',
                     };
                 }
+                if (action.actionType === 'attach_existing_patient') {
+                    return {
+                        actionId: action.actionId,
+                        actionType: action.actionType,
+                        status: 'success',
+                        providerRef: action.target.patientId || action.actionId,
+                    };
+                }
                 // Map action to Airtable request based on entity type.
                 // The migrated Airtable schema is now known.
                 // The runtime keeps snapshot updates narrow: PRE remains active, and
@@ -86,10 +94,20 @@ export function createAirtableProvider(config, requestExecutor) {
                     mapResult = mapPatientAction({ action, registry });
                 }
                 else if (action.entityType === 'visit') {
-                    mapResult = mapVisitAction({ action, registry });
+                    mapResult = mapVisitAction({
+                        action,
+                        registry,
+                        resolvedRefs: ctx.resolvedRefs,
+                        requireRuntimeRefs: true,
+                    });
                 }
                 else if (action.entityType === 'case') {
-                    mapResult = mapCaseAction({ action, registry });
+                    mapResult = mapCaseAction({
+                        action,
+                        registry,
+                        resolvedRefs: ctx.resolvedRefs,
+                        requireRuntimeRefs: true,
+                    });
                 }
                 else if (action.entityType === 'link') {
                     mapResult = mapLinkAction({
@@ -100,7 +118,12 @@ export function createAirtableProvider(config, requestExecutor) {
                     });
                 }
                 else {
-                    mapResult = mapSnapshotAction({ action, registry });
+                    mapResult = mapSnapshotAction({
+                        action,
+                        registry,
+                        resolvedRefs: ctx.resolvedRefs,
+                        requireRuntimeRefs: true,
+                    });
                     if (!mapResult.success &&
                         canUseAbstractSameDateSnapshotUpdate(action, config.requestExecutor !== 'real')) {
                         mapResult = {
@@ -296,11 +319,19 @@ function getActionMappingError(action, registry, allowAbstractSameDateSnapshotUp
         return mapResult.success ? null : mapResult.error;
     }
     if (action.entityType === 'visit') {
-        const mapResult = mapVisitAction({ action, registry });
+        const mapResult = mapVisitAction({
+            action,
+            registry,
+            requireRuntimeRefs: false,
+        });
         return mapResult.success ? null : mapResult.error;
     }
     if (action.entityType === 'case') {
-        const mapResult = mapCaseAction({ action, registry });
+        const mapResult = mapCaseAction({
+            action,
+            registry,
+            requireRuntimeRefs: false,
+        });
         return mapResult.success ? null : mapResult.error;
     }
     if (action.entityType === 'link') {
@@ -312,7 +343,11 @@ function getActionMappingError(action, registry, allowAbstractSameDateSnapshotUp
         return mapResult.success ? null : mapResult.error;
     }
     if (action.entityType === 'snapshot') {
-        const mapResult = mapSnapshotAction({ action, registry });
+        const mapResult = mapSnapshotAction({
+            action,
+            registry,
+            requireRuntimeRefs: false,
+        });
         if (!mapResult.success &&
             canUseAbstractSameDateSnapshotUpdate(action, allowAbstractSameDateSnapshotUpdate)) {
             return null;

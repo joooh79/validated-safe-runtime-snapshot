@@ -31,6 +31,7 @@ import {
   unsupportedActionError,
 } from '../errors.js';
 import { normalizeLinkedRef } from './normalizeAirtableValue.js';
+import { toLinkedRecordCell } from './resolveLinkedRecordValue.js';
 
 export interface MapLinkActionInput {
   action: WriteAction;
@@ -111,7 +112,7 @@ function mapVisitToCaseLink(input: MapLinkActionInput): MapLinkActionOutput {
       table: 'Visits',
       recordId: visitRecordId,
       fields: {
-        [registry.visitLinkFields.cases.fieldName]: caseRecordId,
+        [registry.visitLinkFields.cases.fieldName]: toLinkedRecordCell(caseRecordId),
       },
     },
   };
@@ -193,7 +194,7 @@ function mapSnapshotToCaseLink(input: MapLinkActionInput): MapLinkActionOutput {
                   : action.target.branch === 'OP'
                     ? registry.snapshotCaseLinkFields.OP.fieldName
                   : registry.snapshotCaseLinkFields.PRE.fieldName
-        ]: caseRecordId,
+        ]: toLinkedRecordCell(caseRecordId),
       },
     },
   };
