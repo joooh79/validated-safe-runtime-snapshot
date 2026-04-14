@@ -127,24 +127,61 @@ export function createMcpSessionManager(
     sessionId: string,
     previewState: McpSessionPreviewState,
   ): boolean {
+    // PHASE 4 DIAGNOSTIC: Log preview state storage
     const session = sessions.get(sessionId);
     if (!session) {
+      console.log('[MCP-PHASE-4] setPreviewState failed - session not found:', {
+        sessionId,
+        sessionsMapSize: sessions.size,
+        timestamp: new Date().toISOString(),
+      });
       return false;
     }
 
     session.previewState = previewState;
     session.lastSeenAt = now();
+    
+    console.log('[MCP-PHASE-4] setPreviewState success:', {
+      sessionId,
+      executeAllowed: previewState.executeAllowed,
+      terminalStatus: previewState.terminalStatus,
+      payloadFingerprintLength: previewState.payloadFingerprint.length,
+      sessionsMapSize: sessions.size,
+      timestamp: new Date().toISOString(),
+    });
+    
     return true;
   }
 
   function getPreviewState(sessionId: string): McpSessionPreviewState | null {
+    // PHASE 4 DIAGNOSTIC: Log preview state retrieval
     const session = sessions.get(sessionId);
     if (!session) {
+      console.log('[MCP-PHASE-4] getPreviewState failed - session not found:', {
+        sessionId,
+        sessionsMapSize: sessions.size,
+        availableSessionIds: Array.from(sessions.keys()),
+        timestamp: new Date().toISOString(),
+      });
       return null;
     }
 
     session.lastSeenAt = now();
-    return session.previewState;
+    const previewState = session.previewState;
+    
+    console.log('[MCP-PHASE-4] getPreviewState success:', {
+      sessionId,
+      hasPreviewState: previewState !== null,
+      previewStateSnapshot: previewState ? {
+        executeAllowed: previewState.executeAllowed,
+        terminalStatus: previewState.terminalStatus,
+        payloadFingerprintLength: previewState.payloadFingerprint.length,
+      } : null,
+      sessionsMapSize: sessions.size,
+      timestamp: new Date().toISOString(),
+    });
+    
+    return previewState;
   }
 
   function clearPreviewState(sessionId: string): boolean {

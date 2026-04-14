@@ -27,6 +27,11 @@ const TOOL_DEFINITIONS = [
     },
 ];
 export function createMcpSseTransport(config) {
+    // INFINITE LOOP FIX: requestId-based preview state cache for session recovery
+    // When preview and execute have different sessionIds (common in MCP Chat),
+    // we can still recover the preview state using requestId
+    const requestIdPreviewStateCache = new Map();
+    const PREVIEW_STATE_TTL_MS = 5 * 60 * 1000; // 5 minute TTL
     function handleSseConnection(_request, response) {
         response.writeHead(200, {
             'Content-Type': 'text/event-stream',
@@ -201,8 +206,50 @@ export function createMcpSseTransport(config) {
         return buildErrorResponse(message.id, -32601, `Method not found: ${message.method}`);
     }
     async function dispatchToolCall(sessionId, toolCall) {
+        // PHASE 2 DIAGNOSTIC: Log sessionId for every tool call
+        console.log(`[MCP-PHASE-2] Tool call dispatch:`, {
+            toolName: toolCall.toolName,
+            sessionId,
+            payloadKeys: isRecord(toolCall.payload) ? Object.keys(toolCall.payload) : 'not-a-record',
+            timestamp: new Date().toISOString(),
+        });
         if (toolCall.toolName === 'execute') {
-            const executeGate = evaluateExecuteGate(config.sessionManager.getPreviewState(sessionId), toolCall.payload);
+            // Try to get preview state from current session first
+            let previewStateBeforeGate = config.sessionManager.getPreviewState(sessionId);
+            const requestId = isRecord(toolCall.payload) && typeof toolCall.payload.requestId === 'string'
+                ? toolCall.payload.requestId
+                : 'unknown';
+            // INFINITE LOOP FIX: If not found and we have a requestId, try to recover from cache
+            if (!previewStateBeforeGate && requestId !== 'unknown') {
+                const cachedEntry = requestIdPreviewStateCache.get(requestId);
+                if (cachedEntry && Date.now() - cachedEntry.timestamp < PREVIEW_STATE_TTL_MS) {
+                    previewStateBeforeGate = cachedEntry.previewState;
+                    console.log('[MCP-INFINITE-LOOP-FIX] Recovered preview state from requestId cache:', {
+                        sessionId,
+                        requestId,
+                        cacheAge: Date.now() - cachedEntry.timestamp,
+                    });
+                }
+            }
+            // PHASE 2 DIAGNOSTIC: Log preview state before gate evaluation
+            console.log('[MCP-PHASE-2] Before execute gate check:', {
+                sessionId,
+                requestId,
+                hasPreviewState: previewStateBeforeGate !== null,
+                previewStateSnapshot: previewStateBeforeGate ? {
+                    executeAllowed: previewStateBeforeGate.executeAllowed,
+                    terminalStatus: previewStateBeforeGate.terminalStatus,
+                    updatedAt: previewStateBeforeGate.updatedAt,
+                } : null,
+                timestamp: new Date().toISOString(),
+            });
+            const executeGate = evaluateExecuteGate(previewStateBeforeGate, toolCall.payload);
+            console.log('[MCP-PHASE-2] Execute gate result:', {
+                sessionId,
+                ok: executeGate.ok,
+                reason: executeGate.reason,
+                message: executeGate.message,
+            });
             config.logEvent?.('mcp_execute_gate_checked', {
                 sessionId,
                 allowed: executeGate.ok,
@@ -214,13 +261,41 @@ export function createMcpSseTransport(config) {
         }
         const result = await config.handleToolCall(toolCall);
         if (toolCall.toolName === 'preview') {
+            // PHASE 1 DIAGNOSTIC: Log preview result processing
             const executeAllowed = getExecuteAllowedFromResult(result);
-            config.sessionManager.setPreviewState(sessionId, {
-                payloadFingerprint: buildPayloadFingerprint(toolCall.payload),
+            const requestId = isRecord(toolCall.payload) && typeof toolCall.payload.requestId === 'string'
+                ? toolCall.payload.requestId
+                : 'unknown';
+            console.log('[MCP-PHASE-1] Preview result processing:', {
+                sessionId,
+                requestId,
+                executeAllowedComputed: executeAllowed,
+                resultSuccess: isRecord(result) ? result.success : 'not-record',
+                resultTerminalStatus: isRecord(result) ? result.terminalStatus : undefined,
+                resultRequiresConfirmation: isRecord(result) ? result.requiresConfirmation : undefined,
+                resultReadiness: isRecord(result) ? result.readiness : undefined,
+                timestamp: new Date().toISOString(),
+            });
+            const fingerprint = buildPayloadFingerprint(toolCall.payload);
+            const previewState = {
+                payloadFingerprint: fingerprint,
                 executeAllowed,
                 terminalStatus: getTerminalStatusFromResult(result),
                 updatedAt: Date.now(),
-            });
+            };
+            config.sessionManager.setPreviewState(sessionId, previewState);
+            // INFINITE LOOP FIX: Cache preview state by requestId for recovery
+            if (requestId !== 'unknown') {
+                requestIdPreviewStateCache.set(requestId, {
+                    previewState,
+                    timestamp: Date.now(),
+                });
+                console.log('[MCP-INFINITE-LOOP-FIX] Cached preview state for requestId:', {
+                    requestId,
+                    sessionId,
+                    executeAllowed,
+                });
+            }
             config.logEvent?.('mcp_preview_proof_recorded', {
                 sessionId,
                 executeAllowed,
@@ -228,6 +303,13 @@ export function createMcpSseTransport(config) {
             });
         }
         else if (toolCall.toolName === 'execute' && shouldConsumePreviewProof(result)) {
+            // PHASE 2 DIAGNOSTIC: Log successful execute that consumes preview proof
+            console.log('[MCP-PHASE-2] Execute succeeded - clearing preview state:', {
+                sessionId,
+                resultTerminalStatus: isRecord(result) ? result.terminalStatus : undefined,
+                resultDidWrite: isRecord(result) ? result.didWrite : undefined,
+                timestamp: new Date().toISOString(),
+            });
             config.sessionManager.clearPreviewState(sessionId);
             config.logEvent?.('mcp_preview_proof_consumed', {
                 sessionId,
@@ -413,10 +495,30 @@ function evaluateExecuteGate(previewState, payload) {
     };
 }
 function payloadMatchesPreviewFingerprint(previewFingerprint, payload) {
-    return previewFingerprint === buildPayloadFingerprint(payload);
+    // PHASE 3 DIAGNOSTIC: Compare fingerprints
+    const currentFingerprint = buildPayloadFingerprint(payload);
+    const matches = previewFingerprint === currentFingerprint;
+    if (!matches) {
+        console.log('[MCP-PHASE-3] Payload fingerprint mismatch:', {
+            previewFingerprint: previewFingerprint.substring(0, 100),
+            currentFingerprint: currentFingerprint.substring(0, 100),
+            matches,
+            timestamp: new Date().toISOString(),
+        });
+    }
+    return matches;
 }
 function buildPayloadFingerprint(payload) {
-    return JSON.stringify(sortDeep(sanitizePayloadForPreview(payload)));
+    // PHASE 3 DIAGNOSTIC: Log fingerprint generation
+    const sanitized = sanitizePayloadForPreview(payload);
+    const stringified = JSON.stringify(sortDeep(sanitized));
+    console.log('[MCP-PHASE-3] buildPayloadFingerprint:', {
+        fingerprintLength: stringified.length,
+        fingerprintHash: stringified.substring(0, 80),
+        payloadKeys: isRecord(payload) ? Object.keys(payload).slice(0, 5) : 'not-record',
+        timestamp: new Date().toISOString(),
+    });
+    return stringified;
 }
 function sanitizePayloadForPreview(payload) {
     if (!isRecord(payload)) {
@@ -457,11 +559,22 @@ function sortDeep(value) {
     return value;
 }
 function getExecuteAllowedFromResult(result) {
-    return (isRecord(result) &&
-        result.success === true &&
-        result.terminalStatus === 'preview_pending_confirmation' &&
-        result.requiresConfirmation === true &&
-        result.readiness === 'execution_ready');
+    // PHASE 1 DIAGNOSTIC: Log each condition for preview response validation
+    const checks = {
+        isRecord: isRecord(result),
+        success: isRecord(result) ? result.success === true : false,
+        terminalStatus: isRecord(result) ? result.terminalStatus === 'preview_pending_confirmation' : false,
+        requiresConfirmation: isRecord(result) ? result.requiresConfirmation === true : false,
+        readiness: isRecord(result) ? result.readiness === 'execution_ready' : false,
+    };
+    const allPass = checks.isRecord && checks.success && checks.terminalStatus && checks.requiresConfirmation && checks.readiness;
+    console.log('[MCP-PHASE-1] getExecuteAllowedFromResult diagnostic:', {
+        allPass,
+        checks,
+        resultKeys: isRecord(result) ? Object.keys(result).slice(0, 10) : 'not-a-record',
+        timestamp: new Date().toISOString(),
+    });
+    return allPass;
 }
 function getTerminalStatusFromResult(result) {
     if (isRecord(result) && typeof result.terminalStatus === 'string') {
