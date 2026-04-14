@@ -315,6 +315,29 @@ test('new patient new visit with continuityIntent none auto-creates patient, vis
     response.plan?.actions.filter((action) => action.actionType === 'create_snapshot').length,
     4,
   );
+  const snapshotActions = response.plan?.actions.filter(
+    (action) => action.actionType === 'create_snapshot',
+  );
+  const preSnapshot = snapshotActions?.find((action) => action.target.branch === 'PRE');
+  const radSnapshot = snapshotActions?.find((action) => action.target.branch === 'RAD');
+  const opSnapshot = snapshotActions?.find((action) => action.target.branch === 'OP');
+  const drSnapshot = snapshotActions?.find((action) => action.target.branch === 'DR');
+  assert.deepEqual(preSnapshot?.payloadIntent?.intendedChanges, {
+    symptom: 'cold sensitivity',
+  });
+  assert.deepEqual(radSnapshot?.payloadIntent?.intendedChanges, {
+    radiographType: 'bitewing',
+    radiographicCariesDepth: 'outer dentin',
+  });
+  assert.deepEqual(opSnapshot?.payloadIntent?.intendedChanges, {
+    crackConfirmed: 'dentin crack',
+    subgingivalMargin: 'slightly subgingival',
+  });
+  assert.deepEqual(drSnapshot?.payloadIntent?.intendedChanges, {
+    decisionFactors: ['caries depth', 'subgingival margin'],
+    crackProgressionRisk: 'low',
+    occlusalRisk: 'normal',
+  });
   assert.equal(response.plan?.preview.caseAction, 'Create new case for tooth 14');
   assert.equal(response.resolution?.summary.caseActionSummary, 'Create new case for tooth 14');
   assert.equal(response.display?.title, 'Preview Ready');

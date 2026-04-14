@@ -182,12 +182,10 @@ export function mapSnapshotAction(input) {
                 // Symptom
                 if ('symptom' in intended) {
                     const symptom = intended.symptom;
-                    if (typeof symptom === 'string') {
-                        const allowed = Object.values(registry.symptomOptions);
-                        const normalized = normalizeSelectOption(symptom, allowed, 'Symptom');
-                        if (typeof normalized === 'string') {
-                            fields[registry.preOpFields.symptom.fieldName] = normalized;
-                        }
+                    const allowed = Object.values(registry.symptomOptions);
+                    const normalized = normalizePreOpSymptomOptions(symptom, allowed);
+                    if (Array.isArray(normalized)) {
+                        fields[registry.preOpFields.symptom.fieldName] = normalized;
                     }
                 }
                 // Symptom reproducible
@@ -215,12 +213,10 @@ export function mapSnapshotAction(input) {
                 // Crack detection method
                 if ('crackDetectionMethod' in intended) {
                     const method = intended.crackDetectionMethod;
-                    if (typeof method === 'string') {
-                        const allowed = Object.values(registry.crackDetectionMethodOptions);
-                        const normalized = normalizeSelectOption(method, allowed, 'Crack detection method');
-                        if (typeof normalized === 'string') {
-                            fields[registry.preOpFields.crackDetectionMethod.fieldName] = normalized;
-                        }
+                    const allowed = Object.values(registry.crackDetectionMethodOptions);
+                    const normalized = normalizePreOpCrackDetectionMethodOptions(method, allowed);
+                    if (Array.isArray(normalized)) {
+                        fields[registry.preOpFields.crackDetectionMethod.fieldName] = normalized;
                     }
                 }
                 // Other pre-op fields are canon-confirm-required
@@ -511,7 +507,7 @@ export function mapSnapshotAction(input) {
                 if ('crackLocation' in intended) {
                     const value = intended.crackLocation;
                     const allowed = Object.values(registry.crackLocationOptions);
-                    const normalized = normalizeMultiSelectOptions(value, allowed, 'Crack location');
+                    const normalized = normalizeOperativeCrackLocationOptions(value, allowed);
                     if (Array.isArray(normalized)) {
                         fields[registry.operativeFindingsFields.crackLocation.fieldName] =
                             normalized;
@@ -1036,7 +1032,7 @@ export function mapSnapshotAction(input) {
                 if ('crackLocation' in intended) {
                     const value = intended.crackLocation;
                     const allowed = Object.values(registry.crackLocationOptions);
-                    const normalized = normalizeMultiSelectOptions(value, allowed, 'Crack location');
+                    const normalized = normalizeOperativeCrackLocationOptions(value, allowed);
                     if (Array.isArray(normalized)) {
                         fields[registry.operativeFindingsFields.crackLocation.fieldName] =
                             normalized;
@@ -1159,11 +1155,19 @@ export function mapSnapshotAction(input) {
             if (branch === 'PRE') {
                 if ('symptom' in intended) {
                     const symptom = intended.symptom;
-                    if (typeof symptom === 'string') {
-                        const allowed = Object.values(registry.symptomOptions);
-                        const normalized = normalizeSelectOption(symptom, allowed, 'Symptom');
+                    const allowed = Object.values(registry.symptomOptions);
+                    const normalized = normalizePreOpSymptomOptions(symptom, allowed);
+                    if (Array.isArray(normalized)) {
+                        fields[registry.preOpFields.symptom.fieldName] = normalized;
+                    }
+                }
+                if ('symptomReproducible' in intended) {
+                    const reproducible = intended.symptomReproducible;
+                    if (typeof reproducible === 'string') {
+                        const allowed = Object.values(registry.symptomReproducibleOptions);
+                        const normalized = normalizeSelectOption(reproducible, allowed, 'Symptom reproducible');
                         if (typeof normalized === 'string') {
-                            fields[registry.preOpFields.symptom.fieldName] = normalized;
+                            fields[registry.preOpFields.symptomReproducible.fieldName] = normalized;
                         }
                     }
                 }
@@ -1175,6 +1179,14 @@ export function mapSnapshotAction(input) {
                         if (typeof normalized === 'string') {
                             fields[registry.preOpFields.visibleCrack.fieldName] = normalized;
                         }
+                    }
+                }
+                if ('crackDetectionMethod' in intended) {
+                    const method = intended.crackDetectionMethod;
+                    const allowed = Object.values(registry.crackDetectionMethodOptions);
+                    const normalized = normalizePreOpCrackDetectionMethodOptions(method, allowed);
+                    if (Array.isArray(normalized)) {
+                        fields[registry.preOpFields.crackDetectionMethod.fieldName] = normalized;
                     }
                 }
                 // Other fields canon-confirm-required
@@ -1305,6 +1317,24 @@ function isSafeOperativeFindingsUpdate(action) {
 }
 function hasExplicitExistingSnapshotTarget(action) {
     return action.target.entityRef !== undefined && action.target.entityRef !== '' && action.target.entityRef !== 'NEW';
+}
+function normalizePreOpSymptomOptions(value, allowedOptions) {
+    if (typeof value === 'string') {
+        return normalizeMultiSelectOptions([value], allowedOptions, 'Symptom');
+    }
+    return normalizeMultiSelectOptions(value, allowedOptions, 'Symptom');
+}
+function normalizePreOpCrackDetectionMethodOptions(value, allowedOptions) {
+    if (typeof value === 'string') {
+        return normalizeMultiSelectOptions([value], allowedOptions, 'Crack detection method');
+    }
+    return normalizeMultiSelectOptions(value, allowedOptions, 'Crack detection method');
+}
+function normalizeOperativeCrackLocationOptions(value, allowedOptions) {
+    if (typeof value === 'string') {
+        return normalizeMultiSelectOptions([value], allowedOptions, 'Crack location');
+    }
+    return normalizeMultiSelectOptions(value, allowedOptions, 'Crack location');
 }
 function isAdapterError(value) {
     return typeof value === 'object' && value !== null && 'type' in value;

@@ -326,6 +326,24 @@ Direct local Node development:
 4. Open `http://127.0.0.1:<PORT>/ui`
 5. The browser UI will call `/ui/api/preview` and `/ui/api/execute` directly in local mode
 
+Local real Airtable development with VS Code MCP:
+
+1. Create a root-level `.env.local` file by copying `.env.example`
+2. Set `PORT=10001`
+3. Set `TRUST_PROXY_AUTH=false` for direct local Node access
+4. Set `AIRTABLE_MODE=real`
+5. Set `AIRTABLE_BASE_ID` to your Airtable base ID
+6. Set `AIRTABLE_API_TOKEN` to a personal access token with the needed base permissions
+7. Run `npm start`
+8. Keep `.vscode/settings.json` pointed at `http://127.0.0.1:10001/internal/mcp/sse`
+
+Notes:
+
+- This repo now auto-loads `.env.local` first and then `.env` when you run `npm start`
+- Existing shell environment variables still win over values in those files
+- For local direct-to-Node MCP use, `TRUST_PROXY_AUTH=false` is expected
+- For a proxy-backed deployment, keep `TRUST_PROXY_AUTH=true` and set `PROXY_SHARED_SECRET`
+
 Proxy-like local development:
 
 1. set `PROXY_SHARED_SECRET`

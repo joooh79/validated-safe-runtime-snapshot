@@ -15,7 +15,7 @@
  * - explicit Case-link activation is still deferred
  */
 import { unsupportedActionError } from '../errors.js';
-import { normalizeString, normalizeDate } from './normalizeAirtableValue.js';
+import { normalizeDate, normalizeNumber, normalizeSelectOption, normalizeString, } from './normalizeAirtableValue.js';
 /**
  * Map patient action to Airtable request
  */
@@ -43,18 +43,22 @@ export function mapPatientAction(input) {
             // Map intended changes to Airtable fields
             const intended = payload.intendedChanges;
             // Birth year (if provided)
+            if (typeof action.target.patientId === 'string' && action.target.patientId.trim()) {
+                fields[registry.patientFields.patientId.fieldName] = action.target.patientId.trim();
+            }
             if ('birthYear' in intended) {
                 const birthYear = intended.birthYear;
-                if (typeof birthYear === 'number' || typeof birthYear === 'string') {
-                    fields[registry.patientFields.birthYear.fieldName] = birthYear;
+                const normalized = normalizeNumber(birthYear);
+                if (typeof normalized === 'number') {
+                    fields[registry.patientFields.birthYear.fieldName] = normalized;
                 }
             }
             // Gender (if provided)
             if ('gender' in intended) {
                 const gender = intended.gender;
                 if (typeof gender === 'string') {
-                    const genderValue = registry.genderOptions[gender];
-                    if (genderValue) {
+                    const genderValue = normalizeGenderValue(gender, registry);
+                    if (typeof genderValue === 'string') {
                         fields[registry.patientFields.gender.fieldName] = genderValue;
                     }
                 }
@@ -108,13 +112,16 @@ export function mapPatientAction(input) {
             const intended = payload.intendedChanges;
             // Update allowed patient fields
             if ('birthYear' in intended) {
-                fields[registry.patientFields.birthYear.fieldName] = intended.birthYear;
+                const normalized = normalizeNumber(intended.birthYear);
+                if (typeof normalized === 'number') {
+                    fields[registry.patientFields.birthYear.fieldName] = normalized;
+                }
             }
             if ('gender' in intended) {
                 const gender = intended.gender;
                 if (typeof gender === 'string') {
-                    const genderValue = registry.genderOptions[gender];
-                    if (genderValue) {
+                    const genderValue = normalizeGenderValue(gender, registry);
+                    if (typeof genderValue === 'string') {
                         fields[registry.patientFields.gender.fieldName] = genderValue;
                     }
                 }
@@ -161,4 +168,12 @@ export function mapPatientAction(input) {
                 error: unsupportedActionError(action.actionType, `unknown patient action`),
             };
     }
+}
+function normalizeGenderValue(value, registry) {
+    const keyedValue = registry.genderOptions[value];
+    if (typeof keyedValue === 'string') {
+        return keyedValue;
+    }
+    const normalized = normalizeSelectOption(value, Object.values(registry.genderOptions), 'Gender');
+    return typeof normalized === 'string' ? normalized : undefined;
 }

@@ -53,6 +53,47 @@ test('attach_existing_patient does not issue a create request in real mode', asy
     assert.equal(result.providerRef, 'rec_existing_patient');
     assert.equal(requests.length, 0);
 });
+test('create_patient normalizes numeric birth year and accepts Airtable gender option values', async () => {
+    const { provider, requests } = createCapturingProvider();
+    const action = {
+        actionId: 'action_create_patient',
+        actionOrder: 1,
+        actionType: 'create_patient',
+        entityType: 'patient',
+        targetMode: 'create_new',
+        target: {
+            patientId: 'codex-patient-001',
+            sourceResolutionPath: 'create_new_patient',
+        },
+        payloadIntent: {
+            intendedChanges: {
+                birthYear: '1988',
+                gender: 'Male',
+                firstVisitDate: '2026-04-14',
+            },
+            guardedFields: ['patient_id', 'date_created'],
+        },
+        dependsOnActionIds: [],
+        blockers: [],
+        safety: {
+            duplicateSafe: false,
+            replayEligibleIfFailed: true,
+            highRiskIdentityAction: true,
+        },
+        previewVisible: true,
+    };
+    const result = await provider.executeAction(action, {
+        requestId: 'req_create_patient',
+        planId: 'plan_create_patient',
+        resolvedRefs: {},
+    });
+    assert.equal(result.status, 'success');
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0]?.type, 'create');
+    assert.equal(requests[0]?.fields['Patients ID'], 'codex-patient-001');
+    assert.equal(requests[0]?.fields['Birth year'], 1988);
+    assert.equal(requests[0]?.fields['Gender'], 'Male');
+});
 test('create_visit writes linked patient refs as an array and includes the deterministic visit id', async () => {
     const { provider, requests } = createCapturingProvider();
     const action = {
@@ -99,7 +140,7 @@ test('create_visit writes linked patient refs as an array and includes the deter
     assert.deepEqual(requests[0]?.fields['Patient ID'], ['rec_patient_001']);
     assert.equal(requests[0]?.fields['Visit ID'], 'VISIT-916872-20221013');
 });
-test('create_case and create_snapshot use runtime linked record refs', async () => {
+test('create_case and create_snapshot use runtime linked record refs and normalize multi-select snapshot fields', async () => {
     const { provider, requests } = createCapturingProvider();
     const createCaseAction = {
         actionId: 'action_create_case',
@@ -143,6 +184,8 @@ test('create_case and create_snapshot use runtime linked record refs', async () 
         payloadIntent: {
             intendedChanges: {
                 symptom: 'cold sensitivity',
+                symptomReproducible: 'yes',
+                crackDetectionMethod: 'N/A',
             },
             guardedFields: ['visit_id', 'snapshot_date', 'PRE'],
         },
@@ -173,7 +216,54 @@ test('create_case and create_snapshot use runtime linked record refs', async () 
     assert.equal(snapshotResult.status, 'success');
     assert.deepEqual(requests[0]?.fields['Patient ID'], ['rec_patient_001']);
     assert.deepEqual(requests[1]?.fields['Visit ID'], ['rec_visit_001']);
+    assert.deepEqual(requests[1]?.fields['Symptom'], ['cold sensitivity']);
+    assert.equal(requests[1]?.fields['Symptom reproducible'], 'yes');
+    assert.deepEqual(requests[1]?.fields['Crack detection method'], ['N/A']);
     assert.equal(requests[1]?.fields['Record name'], 'VISIT-916872-20221013-14-PRE');
+});
+test('create operative snapshot wraps crack location into a multi-select array', async () => {
+    const { provider, requests } = createCapturingProvider();
+    const action = {
+        actionId: 'action_create_snapshot_op',
+        actionOrder: 4,
+        actionType: 'create_snapshot',
+        entityType: 'snapshot',
+        targetMode: 'create_new',
+        target: {
+            branch: 'OP',
+            visitId: 'VISIT-916872-20221013',
+            toothNumber: '14',
+            caseId: 'NEW',
+            sourceResolutionPath: 'snapshot_OP_create_new_visit',
+        },
+        payloadIntent: {
+            intendedChanges: {
+                crackConfirmed: 'dentin crack',
+                crackLocation: 'mesial marginal ridge',
+            },
+            guardedFields: ['visit_id', 'snapshot_date', 'OP'],
+        },
+        dependsOnActionIds: ['action_create_visit'],
+        blockers: [],
+        safety: {
+            duplicateSafe: false,
+            replayEligibleIfFailed: true,
+        },
+        previewVisible: true,
+    };
+    const result = await provider.executeAction(action, {
+        requestId: 'req_create_snapshot_op',
+        planId: 'plan_create_snapshot_op',
+        resolvedRefs: {
+            action_create_visit: 'rec_visit_001',
+        },
+    });
+    assert.equal(result.status, 'success');
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0]?.type, 'create');
+    assert.deepEqual(requests[0]?.fields['Visit ID'], ['rec_visit_001']);
+    assert.equal(requests[0]?.fields['Crack confirmed'], 'dentin crack');
+    assert.deepEqual(requests[0]?.fields['Crack location'], ['mesial marginal ridge']);
 });
 test('link_snapshot_to_case writes the case link as a linked-record array', async () => {
     const { provider, requests } = createCapturingProvider();

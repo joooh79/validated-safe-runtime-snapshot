@@ -1,8 +1,14 @@
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
 const DEFAULT_PORT = 10000;
 const DEFAULT_PROXY_MAX_SKEW_MS = 5 * 60 * 1000;
 const DEFAULT_MCP_SESSION_TTL_MS = 10 * 60 * 1000;
 const DEFAULT_MCP_HEARTBEAT_INTERVAL_MS = 15 * 1000;
+const OPTIONAL_ENV_FILES = ['.env.local', '.env'];
 export function resolveServerEnv(env = process.env) {
+    if (env === process.env) {
+        loadOptionalProcessEnvFiles();
+    }
     const port = parsePositiveInteger(env.PORT, DEFAULT_PORT, 'PORT');
     const trustProxyAuth = parseBoolean(env.TRUST_PROXY_AUTH, true, 'TRUST_PROXY_AUTH');
     const proxySharedSecret = normalizeOptionalString(env.PROXY_SHARED_SECRET);
@@ -28,6 +34,18 @@ export function resolveServerEnv(env = process.env) {
             heartbeatIntervalMs,
         },
     };
+}
+function loadOptionalProcessEnvFiles() {
+    if (typeof process.loadEnvFile !== 'function') {
+        return;
+    }
+    for (const relativePath of OPTIONAL_ENV_FILES) {
+        const absolutePath = resolve(process.cwd(), relativePath);
+        if (!existsSync(absolutePath)) {
+            continue;
+        }
+        process.loadEnvFile(absolutePath);
+    }
 }
 function resolveDefaultProviderConfig(env) {
     const rawMode = env.AIRTABLE_MODE;

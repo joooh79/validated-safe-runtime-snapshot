@@ -3,7 +3,54 @@ import type { SnapshotBranch } from '../../types/core.js';
 import type { SnapshotBranchIntent } from './buildSnapshotActions.js';
 
 const WRITABLE_SNAPSHOT_FIELDS: Partial<Record<SnapshotBranch, string[]>> = {
-  PRE: ['symptom', 'visibleCrack'],
+  PRE: ['symptom', 'symptomReproducible', 'visibleCrack', 'crackDetectionMethod'],
+  PLAN: [
+    'pulpTherapy',
+    'restorationDesign',
+    'restorationMaterial',
+    'implantPlacement',
+    'scanFileLink',
+  ],
+  DR: [
+    'decisionFactors',
+    'remainingCuspThicknessDecision',
+    'functionalCuspInvolvement',
+    'crackProgressionRisk',
+    'occlusalRisk',
+    'reasoningNotes',
+  ],
+  DX: [
+    'structuralDiagnosis',
+    'pulpDiagnosis',
+    'crackSeverity',
+    'occlusionRisk',
+    'restorability',
+  ],
+  RAD: [
+    'radiographType',
+    'radiographicCariesDepth',
+    'secondaryCaries',
+    'cariesLocation',
+    'pulpChamberSize',
+    'periapicalLesion',
+    'radiographicFractureSign',
+    'radiographLink',
+  ],
+  OP: [
+    'rubberDamIsolation',
+    'cariesDepthActual',
+    'softDentinRemaining',
+    'crackConfirmed',
+    'crackLocation',
+    'remainingCuspThicknessMm',
+    'subgingivalMargin',
+    'deepMarginalElevation',
+    'idsResinCoating',
+    'resinCoreBuildUpType',
+    'occlusalLoadingTest',
+    'loadingTestResult',
+    'intraoralPhotoLink',
+  ],
 };
 
 export function extractWritableSnapshotIntendedChanges(
