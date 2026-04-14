@@ -67,6 +67,12 @@ export const patientLinkFields = {
     fieldName: 'Cases',
     readonly: false,
   },
+  postDeliveryFollowUps: {
+    table: 'Patients' as const,
+    fieldId: 'fldjYB3pkqK34BGEw',
+    fieldName: 'Post-delivery Follow-ups',
+    readonly: false,
+  },
 } as const satisfies Record<string, AirtableFieldRef>;
 
 // Visit fields used by the active safe slice.
@@ -87,6 +93,12 @@ export const visitFields = {
     table: 'Visits' as const,
     fieldId: 'fld2Qsxq5fPpGm1pS',
     fieldName: 'Date',
+    readonly: false,
+  },
+  episodeStartVisit: {
+    table: 'Visits' as const,
+    fieldId: 'fldJJKTUzmXiqLEJC',
+    fieldName: 'Episode start visit',
     readonly: false,
   },
   visitType: {
@@ -147,10 +159,22 @@ export const visitLinkFields = {
     fieldName: 'Doctor Reasoning',
     readonly: false,
   },
+  episodeStartVisitReverse: {
+    table: 'Visits' as const,
+    fieldId: 'fldCkOk6XgqR7d1QI',
+    fieldName: 'From field: Episode start visit',
+    readonly: false,
+  },
   cases: {
     table: 'Visits' as const,
     fieldId: 'fldvdsJzQ99OJMDkR',
     fieldName: 'Cases',
+    readonly: false,
+  },
+  postDeliveryFollowUps: {
+    table: 'Visits' as const,
+    fieldId: 'fldE5QS4G6oVX7yrn',
+    fieldName: 'Post-delivery Follow-ups',
     readonly: false,
   },
 } as const satisfies Record<string, AirtableFieldRef>;
@@ -238,6 +262,99 @@ export const caseFields = {
     table: 'Cases' as const,
     fieldId: 'fldp32SkgizcKcfCy',
     fieldName: 'Latest working plan',
+    readonly: false,
+  },
+  finalProsthesisPlanDate: {
+    table: 'Cases' as const,
+    fieldId: 'fldotjgXcLmZFhy63',
+    fieldName: 'Final prosthesis plan date',
+    readonly: false,
+  },
+  finalPrepAndScanDate: {
+    table: 'Cases' as const,
+    fieldId: 'fldpyyRgKdjz7ozbc',
+    fieldName: 'Final prep & scan date',
+    readonly: false,
+  },
+  finalProsthesisDeliveryDate: {
+    table: 'Cases' as const,
+    fieldId: 'fldvJgCn2Rzn1iPYI',
+    fieldName: 'Final prosthesis delivery date',
+    readonly: false,
+  },
+  latestPostDeliveryFollowUpDate: {
+    table: 'Cases' as const,
+    fieldId: 'fld8mm0qA05VphkKi',
+    fieldName: 'Latest post-delivery follow-up date',
+    readonly: false,
+  },
+  latestPostDeliveryFollowUpResult: {
+    table: 'Cases' as const,
+    fieldId: 'fldltOHxCBQEChwH7',
+    fieldName: 'Latest post-delivery follow-up result',
+    readonly: false,
+  },
+  postDeliveryFollowUps: {
+    table: 'Cases' as const,
+    fieldId: 'fldpAzFxMPiRT1ed1',
+    fieldName: 'Post-delivery Follow-ups',
+    readonly: false,
+  },
+} as const satisfies Record<string, AirtableFieldRef>;
+
+export const postDeliveryFollowUpFields = {
+  followUpId: {
+    table: 'Post-delivery Follow-ups' as const,
+    fieldId: 'fld6hsy1itW2bsHPz',
+    fieldName: 'Follow-up ID',
+    readonly: true,
+  },
+  caseId: {
+    table: 'Post-delivery Follow-ups' as const,
+    fieldId: 'fldIlaOWNaLWFRkpW',
+    fieldName: 'Case ID',
+    readonly: false,
+  },
+  visitId: {
+    table: 'Post-delivery Follow-ups' as const,
+    fieldId: 'fldCnBg7lOBP0IKQj',
+    fieldName: 'Visit ID',
+    readonly: false,
+  },
+  patientId: {
+    table: 'Post-delivery Follow-ups' as const,
+    fieldId: 'fldbrFZirVZ133Xip',
+    fieldName: 'Patient ID',
+    readonly: false,
+  },
+  toothNumber: {
+    table: 'Post-delivery Follow-ups' as const,
+    fieldId: 'fldwDGx5voXe5KixD',
+    fieldName: 'Tooth number',
+    readonly: false,
+  },
+  followUpDate: {
+    table: 'Post-delivery Follow-ups' as const,
+    fieldId: 'fldjeimNbeuSwhGUa',
+    fieldName: 'Follow-up date',
+    readonly: false,
+  },
+  followUpResult: {
+    table: 'Post-delivery Follow-ups' as const,
+    fieldId: 'fldk41pcbGQGYlwcz',
+    fieldName: 'Follow-up result',
+    readonly: false,
+  },
+  issueSummary: {
+    table: 'Post-delivery Follow-ups' as const,
+    fieldId: 'fldJYCTdNBpEpJ2zL',
+    fieldName: 'Issue summary',
+    readonly: false,
+  },
+  followUpNotes: {
+    table: 'Post-delivery Follow-ups' as const,
+    fieldId: 'fldnaaFp71I4fBLIe',
+    fieldName: 'Follow-up notes',
     readonly: false,
   },
 } as const satisfies Record<string, AirtableFieldRef>;
@@ -748,6 +865,8 @@ export const visitTypeOptions = {
   firstVisit: 'first visit',
   recall: 'recall',
   emergency: 'emergency',
+  continueCase: 'continue case',
+  followUp: 'follow up',
 } as const;
 
 export const symptomOptions = {
@@ -1028,6 +1147,12 @@ export const followUpPendingOptions = {
   no: 'no',
 } as const;
 
+export const postDeliveryFollowUpResultOptions = {
+  noIssue: 'no issue',
+  issueDetected: 'issue detected',
+  notChecked: 'not checked',
+} as const;
+
 /**
  * Mapping Registry
  */
@@ -1037,6 +1162,7 @@ export interface MappingRegistry {
   visitFields: typeof visitFields;
   visitLinkFields: typeof visitLinkFields;
   caseFields: typeof caseFields;
+  postDeliveryFollowUpFields: typeof postDeliveryFollowUpFields;
   caseSnapshotLinkFields: typeof caseSnapshotLinkFields;
   preOpFields: typeof preOpFields;
   planFields: typeof planFields;
@@ -1086,6 +1212,7 @@ export interface MappingRegistry {
   loadingTestResultOptions: typeof loadingTestResultOptions;
   episodeStatusOptions: typeof episodeStatusOptions;
   followUpPendingOptions: typeof followUpPendingOptions;
+  postDeliveryFollowUpResultOptions: typeof postDeliveryFollowUpResultOptions;
 }
 
 /**
@@ -1097,6 +1224,7 @@ export const createDefaultMappingRegistry = (): MappingRegistry => ({
   visitFields,
   visitLinkFields,
   caseFields,
+  postDeliveryFollowUpFields,
   caseSnapshotLinkFields,
   preOpFields,
   planFields,
@@ -1146,4 +1274,5 @@ export const createDefaultMappingRegistry = (): MappingRegistry => ({
   loadingTestResultOptions,
   episodeStatusOptions,
   followUpPendingOptions,
+  postDeliveryFollowUpResultOptions,
 });

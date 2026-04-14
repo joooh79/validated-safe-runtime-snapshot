@@ -156,3 +156,152 @@ test('buildReadablePreview exposes representative_fields from supported snapshot
         },
     ]);
 });
+test('buildReadablePreview surfaces new case milestone and post-delivery follow-up fields when present', () => {
+    const preparedRequest = {
+        requestId: fixture_existingPatientNewVisitSimple.contract.requestId,
+        contract: fixture_existingPatientNewVisitSimple.contract,
+        lookupBundle: fixture_existingPatientNewVisitSimple.lookups,
+        provider: {},
+        confirmed: false,
+        dryRun: true,
+    };
+    const resolution = {
+        requestId: fixture_existingPatientNewVisitSimple.contract.requestId,
+        workflowIntent: fixture_existingPatientNewVisitSimple.contract.workflowIntent,
+        continuityIntent: 'continue_case',
+        patient: {
+            status: 'resolved_existing_patient',
+            resolvedPatientId: 'P-001',
+            reasons: ['existing_patient_claim + patient_found'],
+        },
+        visit: {
+            status: 'create_new_visit',
+            reasons: ['new_visit_intent + no_same_date_visit_conflict'],
+        },
+        caseResolution: {
+            status: 'continue_case',
+            resolvedCaseId: 'VISIT-916872-20221013',
+            toothNumber: '14',
+            visitDate: '2022-10-19',
+            episodeStartDate: '2022-10-13',
+            reasons: ['continue_case'],
+        },
+        correction: {
+            correctionNeeded: false,
+            reasons: ['no_correction_needed'],
+        },
+        ambiguity: {
+            hasAmbiguity: false,
+            ambiguityTypes: [],
+            reasons: [],
+        },
+        readiness: 'ready_for_write_plan',
+        interactionMode: 'preview_confirmation',
+        warnings: [],
+        summary: {
+            patientActionSummary: 'Use existing patient: P-001',
+            visitActionSummary: 'Create new visit',
+            caseActionSummary: 'Continue existing case',
+            nextStepSummary: 'Ready to send. Please review and confirm.',
+        },
+    };
+    const plan = {
+        planId: 'plan_case_preview_001',
+        requestId: preparedRequest.requestId,
+        inputHash: null,
+        resolution,
+        warnings: [],
+        readiness: 'execution_ready',
+        actions: [
+            {
+                actionId: 'action_attach_patient',
+                actionOrder: 1,
+                actionType: 'attach_existing_patient',
+                entityType: 'patient',
+                targetMode: 'update_existing',
+                target: {
+                    patientId: 'P-001',
+                },
+                payloadIntent: {
+                    intendedChanges: {},
+                    guardedFields: [],
+                },
+                dependsOnActionIds: [],
+                blockers: [],
+                safety: {
+                    duplicateSafe: true,
+                    replayEligibleIfFailed: false,
+                    highRiskIdentityAction: true,
+                },
+                previewVisible: true,
+            },
+            {
+                actionId: 'action_create_visit',
+                actionOrder: 2,
+                actionType: 'create_visit',
+                entityType: 'visit',
+                targetMode: 'create_new',
+                target: {
+                    visitId: 'NEW',
+                },
+                payloadIntent: {
+                    intendedChanges: {
+                        visitType: 'follow up',
+                    },
+                    guardedFields: [],
+                },
+                dependsOnActionIds: ['action_attach_patient'],
+                blockers: [],
+                safety: {
+                    duplicateSafe: false,
+                    replayEligibleIfFailed: true,
+                    highRiskIdentityAction: true,
+                },
+                previewVisible: true,
+            },
+            {
+                actionId: 'action_update_case_latest_synthesis',
+                actionOrder: 6,
+                actionType: 'update_case_latest_synthesis',
+                entityType: 'case',
+                targetMode: 'update_existing',
+                target: {
+                    patientId: '916872',
+                    caseId: 'VISIT-916872-20221013',
+                    visitDate: '2022-10-19',
+                    toothNumber: '14',
+                },
+                payloadIntent: {
+                    intendedChanges: {
+                        finalProsthesisPlanDate: '2022-10-19',
+                        finalPrepAndScanDate: '2022-10-26',
+                        finalProsthesisDeliveryDate: '2022-11-02',
+                        latestPostDeliveryFollowUpDate: '2022-11-16',
+                        latestPostDeliveryFollowUpResult: 'not checked',
+                    },
+                    guardedFields: ['case_id'],
+                },
+                dependsOnActionIds: ['action_create_visit'],
+                blockers: [],
+                safety: {
+                    duplicateSafe: true,
+                    replayEligibleIfFailed: true,
+                },
+                previewVisible: false,
+            },
+        ],
+        preview: {
+            patientAction: 'Use existing patient (ID: P-001)',
+            visitAction: 'Create new visit',
+            caseAction: 'Continue existing case for tooth 14',
+            snapshotActions: [],
+            warnings: [],
+            nextStep: 'confirm',
+        },
+    };
+    const preview = buildPreview(resolution, plan, 'preview_confirmation');
+    const readablePreview = buildReadablePreview(preparedRequest, preview, plan);
+    assert.equal(readablePreview.case_summary.representative_fields.some((field) => field.field === 'Final prosthesis plan date' && field.value === '2022-10-19'), true);
+    assert.equal(readablePreview.case_summary.representative_fields.some((field) => field.field === 'Latest post-delivery follow-up result' &&
+        field.value === 'not checked'), true);
+});

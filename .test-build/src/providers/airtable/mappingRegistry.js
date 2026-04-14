@@ -63,6 +63,12 @@ export const patientLinkFields = {
         fieldName: 'Cases',
         readonly: false,
     },
+    postDeliveryFollowUps: {
+        table: 'Patients',
+        fieldId: 'fldjYB3pkqK34BGEw',
+        fieldName: 'Post-delivery Follow-ups',
+        readonly: false,
+    },
 };
 // Visit fields used by the active safe slice.
 export const visitFields = {
@@ -82,6 +88,12 @@ export const visitFields = {
         table: 'Visits',
         fieldId: 'fld2Qsxq5fPpGm1pS',
         fieldName: 'Date',
+        readonly: false,
+    },
+    episodeStartVisit: {
+        table: 'Visits',
+        fieldId: 'fldJJKTUzmXiqLEJC',
+        fieldName: 'Episode start visit',
         readonly: false,
     },
     visitType: {
@@ -141,10 +153,22 @@ export const visitLinkFields = {
         fieldName: 'Doctor Reasoning',
         readonly: false,
     },
+    episodeStartVisitReverse: {
+        table: 'Visits',
+        fieldId: 'fldCkOk6XgqR7d1QI',
+        fieldName: 'From field: Episode start visit',
+        readonly: false,
+    },
     cases: {
         table: 'Visits',
         fieldId: 'fldvdsJzQ99OJMDkR',
         fieldName: 'Cases',
+        readonly: false,
+    },
+    postDeliveryFollowUps: {
+        table: 'Visits',
+        fieldId: 'fldE5QS4G6oVX7yrn',
+        fieldName: 'Post-delivery Follow-ups',
         readonly: false,
     },
 };
@@ -231,6 +255,98 @@ export const caseFields = {
         table: 'Cases',
         fieldId: 'fldp32SkgizcKcfCy',
         fieldName: 'Latest working plan',
+        readonly: false,
+    },
+    finalProsthesisPlanDate: {
+        table: 'Cases',
+        fieldId: 'fldotjgXcLmZFhy63',
+        fieldName: 'Final prosthesis plan date',
+        readonly: false,
+    },
+    finalPrepAndScanDate: {
+        table: 'Cases',
+        fieldId: 'fldpyyRgKdjz7ozbc',
+        fieldName: 'Final prep & scan date',
+        readonly: false,
+    },
+    finalProsthesisDeliveryDate: {
+        table: 'Cases',
+        fieldId: 'fldvJgCn2Rzn1iPYI',
+        fieldName: 'Final prosthesis delivery date',
+        readonly: false,
+    },
+    latestPostDeliveryFollowUpDate: {
+        table: 'Cases',
+        fieldId: 'fld8mm0qA05VphkKi',
+        fieldName: 'Latest post-delivery follow-up date',
+        readonly: false,
+    },
+    latestPostDeliveryFollowUpResult: {
+        table: 'Cases',
+        fieldId: 'fldltOHxCBQEChwH7',
+        fieldName: 'Latest post-delivery follow-up result',
+        readonly: false,
+    },
+    postDeliveryFollowUps: {
+        table: 'Cases',
+        fieldId: 'fldpAzFxMPiRT1ed1',
+        fieldName: 'Post-delivery Follow-ups',
+        readonly: false,
+    },
+};
+export const postDeliveryFollowUpFields = {
+    followUpId: {
+        table: 'Post-delivery Follow-ups',
+        fieldId: 'fld6hsy1itW2bsHPz',
+        fieldName: 'Follow-up ID',
+        readonly: true,
+    },
+    caseId: {
+        table: 'Post-delivery Follow-ups',
+        fieldId: 'fldIlaOWNaLWFRkpW',
+        fieldName: 'Case ID',
+        readonly: false,
+    },
+    visitId: {
+        table: 'Post-delivery Follow-ups',
+        fieldId: 'fldCnBg7lOBP0IKQj',
+        fieldName: 'Visit ID',
+        readonly: false,
+    },
+    patientId: {
+        table: 'Post-delivery Follow-ups',
+        fieldId: 'fldbrFZirVZ133Xip',
+        fieldName: 'Patient ID',
+        readonly: false,
+    },
+    toothNumber: {
+        table: 'Post-delivery Follow-ups',
+        fieldId: 'fldwDGx5voXe5KixD',
+        fieldName: 'Tooth number',
+        readonly: false,
+    },
+    followUpDate: {
+        table: 'Post-delivery Follow-ups',
+        fieldId: 'fldjeimNbeuSwhGUa',
+        fieldName: 'Follow-up date',
+        readonly: false,
+    },
+    followUpResult: {
+        table: 'Post-delivery Follow-ups',
+        fieldId: 'fldk41pcbGQGYlwcz',
+        fieldName: 'Follow-up result',
+        readonly: false,
+    },
+    issueSummary: {
+        table: 'Post-delivery Follow-ups',
+        fieldId: 'fldJYCTdNBpEpJ2zL',
+        fieldName: 'Issue summary',
+        readonly: false,
+    },
+    followUpNotes: {
+        table: 'Post-delivery Follow-ups',
+        fieldId: 'fldnaaFp71I4fBLIe',
+        fieldName: 'Follow-up notes',
         readonly: false,
     },
 };
@@ -731,6 +847,8 @@ export const visitTypeOptions = {
     firstVisit: 'first visit',
     recall: 'recall',
     emergency: 'emergency',
+    continueCase: 'continue case',
+    followUp: 'follow up',
 };
 export const symptomOptions = {
     coldSensitivity: 'cold sensitivity',
@@ -971,6 +1089,11 @@ export const followUpPendingOptions = {
     yes: 'yes',
     no: 'no',
 };
+export const postDeliveryFollowUpResultOptions = {
+    noIssue: 'no issue',
+    issueDetected: 'issue detected',
+    notChecked: 'not checked',
+};
 /**
  * Default mapping registry with schema-confirmed mappings only.
  */
@@ -980,6 +1103,7 @@ export const createDefaultMappingRegistry = () => ({
     visitFields,
     visitLinkFields,
     caseFields,
+    postDeliveryFollowUpFields,
     caseSnapshotLinkFields,
     preOpFields,
     planFields,
@@ -1029,4 +1153,5 @@ export const createDefaultMappingRegistry = () => ({
     loadingTestResultOptions,
     episodeStatusOptions,
     followUpPendingOptions,
+    postDeliveryFollowUpResultOptions,
 });

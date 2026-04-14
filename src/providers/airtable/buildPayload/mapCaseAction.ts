@@ -22,6 +22,7 @@ import {
 } from '../errors.js';
 import {
   normalizeDate,
+  normalizeSelectOption,
   normalizeString,
 } from './normalizeAirtableValue.js';
 import { buildLinkedRecordCell } from './resolveLinkedRecordValue.js';
@@ -236,6 +237,72 @@ function mapUpdateCaseLatestSynthesis(
     fields[registry.caseFields.latestWorkingPlan.fieldName] = intended.latestWorkingPlan.trim();
   }
 
+  const finalProsthesisPlanDate = maybeNormalizeDate(intended?.finalProsthesisPlanDate);
+  if (isAdapterError(finalProsthesisPlanDate)) {
+    return {
+      success: false,
+      error: finalProsthesisPlanDate,
+    };
+  }
+  if (finalProsthesisPlanDate) {
+    fields[registry.caseFields.finalProsthesisPlanDate.fieldName] = finalProsthesisPlanDate;
+  }
+
+  const finalPrepAndScanDate = maybeNormalizeDate(intended?.finalPrepAndScanDate);
+  if (isAdapterError(finalPrepAndScanDate)) {
+    return {
+      success: false,
+      error: finalPrepAndScanDate,
+    };
+  }
+  if (finalPrepAndScanDate) {
+    fields[registry.caseFields.finalPrepAndScanDate.fieldName] = finalPrepAndScanDate;
+  }
+
+  const finalProsthesisDeliveryDate = maybeNormalizeDate(
+    intended?.finalProsthesisDeliveryDate,
+  );
+  if (isAdapterError(finalProsthesisDeliveryDate)) {
+    return {
+      success: false,
+      error: finalProsthesisDeliveryDate,
+    };
+  }
+  if (finalProsthesisDeliveryDate) {
+    fields[registry.caseFields.finalProsthesisDeliveryDate.fieldName] =
+      finalProsthesisDeliveryDate;
+  }
+
+  const latestPostDeliveryFollowUpDate = maybeNormalizeDate(
+    intended?.latestPostDeliveryFollowUpDate,
+  );
+  if (isAdapterError(latestPostDeliveryFollowUpDate)) {
+    return {
+      success: false,
+      error: latestPostDeliveryFollowUpDate,
+    };
+  }
+  if (latestPostDeliveryFollowUpDate) {
+    fields[registry.caseFields.latestPostDeliveryFollowUpDate.fieldName] =
+      latestPostDeliveryFollowUpDate;
+  }
+
+  const latestPostDeliveryFollowUpResult = maybeNormalizeSelect(
+    intended?.latestPostDeliveryFollowUpResult,
+    Object.values(registry.postDeliveryFollowUpResultOptions),
+    registry.caseFields.latestPostDeliveryFollowUpResult.fieldName,
+  );
+  if (isAdapterError(latestPostDeliveryFollowUpResult)) {
+    return {
+      success: false,
+      error: latestPostDeliveryFollowUpResult,
+    };
+  }
+  if (latestPostDeliveryFollowUpResult) {
+    fields[registry.caseFields.latestPostDeliveryFollowUpResult.fieldName] =
+      latestPostDeliveryFollowUpResult;
+  }
+
   return {
     success: true,
     request: {
@@ -263,6 +330,26 @@ function buildVisitId(
 
 function compactDate(date: string): string {
   return date.replaceAll('-', '');
+}
+
+function maybeNormalizeDate(
+  value: unknown,
+): string | AirtableAdapterError | undefined {
+  if (value === undefined || value === null || value === '') {
+    return undefined;
+  }
+  return normalizeDate(value);
+}
+
+function maybeNormalizeSelect(
+  value: unknown,
+  allowedOptions: string[],
+  fieldName: string,
+): string | AirtableAdapterError | undefined {
+  if (value === undefined || value === null || value === '') {
+    return undefined;
+  }
+  return normalizeSelectOption(value, allowedOptions, fieldName);
 }
 
 function isAdapterError(value: unknown): value is AirtableAdapterError {

@@ -17,6 +17,7 @@ export type AirtableTableId =
   | 'Patients'
   | 'Visits'
   | 'Cases'
+  | 'Post-delivery Follow-ups'
   | 'Pre-op Clinical Findings'
   | 'Radiographic Findings'
   | 'Operative Findings'

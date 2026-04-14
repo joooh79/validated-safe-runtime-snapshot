@@ -1,5 +1,12 @@
 const CURRENT_STATE_UNAVAILABLE = '(current-state unavailable)';
 const EMPTY_PLACEHOLDER = '(empty)';
+const CASE_FIELD_LABELS = {
+    finalProsthesisPlanDate: 'Final prosthesis plan date',
+    finalPrepAndScanDate: 'Final prep & scan date',
+    finalProsthesisDeliveryDate: 'Final prosthesis delivery date',
+    latestPostDeliveryFollowUpDate: 'Latest post-delivery follow-up date',
+    latestPostDeliveryFollowUpResult: 'Latest post-delivery follow-up result',
+};
 const SNAPSHOT_FIELD_LABELS = {
     PRE: {
         symptom: 'Symptom',
@@ -151,6 +158,7 @@ function buildVisitSummary(request, preview) {
 function buildCaseSummary(request, preview, plan) {
     const representative_fields = [];
     const caseResolution = plan.resolution.caseResolution;
+    const caseIntendedChanges = collectCaseIntendedChanges(plan.actions);
     const details = [
         ...(preview.caseBlock.details ?? []),
         ...buildCaseCandidateDetails(caseResolution),
@@ -172,6 +180,15 @@ function buildCaseSummary(request, preview, plan) {
             field: 'Episode start date',
             value: caseResolution.episodeStartDate,
         });
+    }
+    for (const [fieldKey, fieldLabel] of Object.entries(CASE_FIELD_LABELS)) {
+        const value = caseIntendedChanges[fieldKey];
+        if (typeof value === 'string' && value.trim()) {
+            representative_fields.push({
+                field: fieldLabel,
+                value: value.trim(),
+            });
+        }
     }
     const targetTeeth = caseResolution.targets?.map((target) => target.toothNumber) ?? [];
     if (targetTeeth.length > 1) {
@@ -203,6 +220,20 @@ function buildCaseSummary(request, preview, plan) {
         details,
         representative_fields,
     };
+}
+function collectCaseIntendedChanges(actions) {
+    return actions
+        .filter((action) => action.entityType === 'case')
+        .reduce((merged, action) => {
+        const intended = action.payloadIntent?.intendedChanges;
+        if (!intended) {
+            return merged;
+        }
+        return {
+            ...merged,
+            ...intended,
+        };
+    }, {});
 }
 function buildCaseCandidateDetails(caseResolution) {
     if (caseResolution.status !== 'unresolved_case_ambiguity' ||

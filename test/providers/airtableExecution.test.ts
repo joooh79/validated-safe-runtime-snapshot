@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createAirtableProvider, type CreateRequest, type RequestExecutor, type UpdateRequest } from '../../src/providers/airtable/createAirtableProvider.js';
+import { createDefaultMappingRegistry } from '../../src/providers/airtable/mappingRegistry.js';
 import { shouldSkipAction } from '../../src/execution/rules/shouldSkipAction.js';
 import type { WriteAction } from '../../src/types/write-plan.js';
 
@@ -158,6 +159,56 @@ test('create_visit writes linked patient refs as an array and includes the deter
   assert.equal(requests[0]?.type, 'create');
   assert.deepEqual(requests[0]?.fields['Patient ID'], ['rec_patient_001']);
   assert.equal(requests[0]?.fields['Visit ID'], 'VISIT-916872-20221013');
+});
+
+test('create_visit accepts exact Visit type values continue case and follow up', async () => {
+  const visitTypes = ['continue case', 'follow up'] as const;
+
+  for (const visitType of visitTypes) {
+    const { provider, requests } = createCapturingProvider();
+
+    const action: WriteAction = {
+      actionId: `action_create_visit_${visitType.replaceAll(' ', '_')}`,
+      actionOrder: 2,
+      actionType: 'create_visit',
+      entityType: 'visit',
+      targetMode: 'create_new',
+      target: {
+        patientId: '916872',
+        visitId: `VISIT-916872-20221019-${visitType.replaceAll(' ', '-')}`,
+        sourceResolutionPath: 'create_new_visit',
+      },
+      payloadIntent: {
+        intendedChanges: {
+          patientId: '916872',
+          visitId: `VISIT-916872-20221019-${visitType.replaceAll(' ', '-')}`,
+          date: '2022-10-19',
+          visitType,
+        },
+        guardedFields: ['visit_id', 'visit_date'],
+      },
+      dependsOnActionIds: ['action_create_patient'],
+      blockers: [],
+      safety: {
+        duplicateSafe: false,
+        replayEligibleIfFailed: true,
+        highRiskIdentityAction: true,
+      },
+      previewVisible: true,
+    };
+
+    const result = await provider.executeAction(action, {
+      requestId: `req_create_visit_${visitType.replaceAll(' ', '_')}`,
+      planId: 'plan_create_visit_visit_type',
+      resolvedRefs: {
+        action_create_patient: 'rec_patient_001',
+      },
+    });
+
+    assert.equal(result.status, 'success');
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0]?.fields['Visit type'], visitType);
+  }
 });
 
 test('create_case and create_snapshot use runtime linked record refs and normalize multi-select snapshot fields', async () => {
@@ -339,6 +390,125 @@ test('link_snapshot_to_case writes the case link as a linked-record array', asyn
   assert.equal(requests.length, 1);
   assert.equal(requests[0]?.type, 'update');
   assert.deepEqual(requests[0]?.fields['Case ID'], ['rec_case_001']);
+});
+
+test('update_case_latest_synthesis maps new case milestone and post-delivery follow-up fields', async () => {
+  const { provider, requests } = createCapturingProvider();
+
+  const action: WriteAction = {
+    actionId: 'action_update_case_latest_synthesis',
+    actionOrder: 6,
+    actionType: 'update_case_latest_synthesis',
+    entityType: 'case',
+    targetMode: 'update_existing',
+    target: {
+      patientId: '916872',
+      caseId: 'rec_case_001',
+      visitDate: '2022-10-19',
+      toothNumber: '14',
+      sourceResolutionPath: 'case_synthesis_update',
+    },
+    payloadIntent: {
+      intendedChanges: {
+        latestSummary: 'follow-up after delivery',
+        finalProsthesisPlanDate: '2022-10-19',
+        finalPrepAndScanDate: '2022-10-26',
+        finalProsthesisDeliveryDate: '2022-11-02',
+        latestPostDeliveryFollowUpDate: '2022-11-16',
+        latestPostDeliveryFollowUpResult: 'no issue',
+      },
+      guardedFields: ['case_id'],
+    },
+    dependsOnActionIds: ['action_create_visit'],
+    blockers: [],
+    safety: {
+      duplicateSafe: true,
+      replayEligibleIfFailed: true,
+    },
+    previewVisible: false,
+  };
+
+  const result = await provider.executeAction(action, {
+    requestId: 'req_update_case_latest_synthesis',
+    planId: 'plan_update_case_latest_synthesis',
+    resolvedRefs: {},
+  });
+
+  assert.equal(result.status, 'success');
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0]?.type, 'update');
+  assert.equal(requests[0]?.fields['Final prosthesis plan date'], '2022-10-19');
+  assert.equal(requests[0]?.fields['Final prep & scan date'], '2022-10-26');
+  assert.equal(requests[0]?.fields['Final prosthesis delivery date'], '2022-11-02');
+  assert.equal(requests[0]?.fields['Latest post-delivery follow-up date'], '2022-11-16');
+  assert.equal(requests[0]?.fields['Latest post-delivery follow-up result'], 'no issue');
+});
+
+test('update_case_latest_synthesis rejects non-schema post-delivery follow-up result values', async () => {
+  const { provider, requests } = createCapturingProvider();
+
+  const action: WriteAction = {
+    actionId: 'action_update_case_latest_synthesis_invalid_follow_up',
+    actionOrder: 6,
+    actionType: 'update_case_latest_synthesis',
+    entityType: 'case',
+    targetMode: 'update_existing',
+    target: {
+      patientId: '916872',
+      caseId: 'rec_case_001',
+      visitDate: '2022-10-19',
+      toothNumber: '14',
+      sourceResolutionPath: 'case_synthesis_update',
+    },
+    payloadIntent: {
+      intendedChanges: {
+        latestPostDeliveryFollowUpResult: 'stable',
+      },
+      guardedFields: ['case_id'],
+    },
+    dependsOnActionIds: ['action_create_visit'],
+    blockers: [],
+    safety: {
+      duplicateSafe: true,
+      replayEligibleIfFailed: true,
+    },
+    previewVisible: false,
+  };
+
+  const result = await provider.executeAction(action, {
+    requestId: 'req_update_case_invalid_follow_up',
+    planId: 'plan_update_case_invalid_follow_up',
+    resolvedRefs: {},
+  });
+
+  assert.equal(result.status, 'failed');
+  assert.equal(requests.length, 0);
+  assert.match(result.errorMessage ?? '', /Latest post-delivery follow-up result/);
+});
+
+test('default mapping registry recognizes the new Cases and Post-delivery Follow-ups schema fields', () => {
+  const registry = createDefaultMappingRegistry();
+
+  assert.equal(registry.visitTypeOptions.continueCase, 'continue case');
+  assert.equal(registry.visitTypeOptions.followUp, 'follow up');
+  assert.equal(registry.visitFields.episodeStartVisit.fieldName, 'Episode start visit');
+  assert.equal(
+    registry.caseFields.finalProsthesisPlanDate.fieldName,
+    'Final prosthesis plan date',
+  );
+  assert.equal(
+    registry.caseFields.latestPostDeliveryFollowUpResult.fieldName,
+    'Latest post-delivery follow-up result',
+  );
+  assert.equal(
+    registry.postDeliveryFollowUpFields.followUpResult.fieldName,
+    'Follow-up result',
+  );
+  assert.deepEqual(Object.values(registry.postDeliveryFollowUpResultOptions), [
+    'no issue',
+    'issue detected',
+    'not checked',
+  ]);
 });
 
 test('shouldSkipAction skips dependents when an upstream dependency was skipped', () => {

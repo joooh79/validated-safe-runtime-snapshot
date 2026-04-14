@@ -91,7 +91,8 @@ function isVisitResolutionValid(visit) {
 }
 function hasRequiredRuntimeRefs(patient, caseResolution) {
     if (patient.status === 'resolved_existing_patient' &&
-        !patient.resolvedPatientRecordRef) {
+        !patient.resolvedPatientRecordRef &&
+        !patient.resolvedPatientId) {
         return false;
     }
     if (caseResolution.status === 'continue_case' &&

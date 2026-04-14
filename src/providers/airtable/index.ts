@@ -27,6 +27,7 @@ export {
   visitFields,
   visitLinkFields,
   caseFields,
+  postDeliveryFollowUpFields,
   caseSnapshotLinkFields,
   preOpFields,
   planFields,
@@ -76,6 +77,7 @@ export {
   loadingTestResultOptions,
   episodeStatusOptions,
   followUpPendingOptions,
+  postDeliveryFollowUpResultOptions,
 } from './mappingRegistry.js';
 
 // Error constructors

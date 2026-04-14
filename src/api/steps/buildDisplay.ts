@@ -67,6 +67,14 @@ const SNAPSHOT_INPUT_FIELD_LABELS: Record<SnapshotBranch, Record<string, string>
   },
 };
 
+const CASE_INPUT_FIELD_LABELS: Record<string, string> = {
+  finalProsthesisPlanDate: 'Final prosthesis plan date',
+  finalPrepAndScanDate: 'Final prep & scan date',
+  finalProsthesisDeliveryDate: 'Final prosthesis delivery date',
+  latestPostDeliveryFollowUpDate: 'Latest post-delivery follow-up date',
+  latestPostDeliveryFollowUpResult: 'Latest post-delivery follow-up result',
+};
+
 export function buildDisplay(input: {
   request: PreparedApiRequest;
   preview: PreviewModel;
@@ -196,10 +204,15 @@ function buildCaseDisplaySection(
 ): ApiDisplaySection {
   const caseActions = plan.actions.filter(
     (candidate) =>
-      candidate.entityType === 'case' &&
-      candidate.previewVisible &&
-      candidate.actionType !== 'update_case_latest_synthesis',
+      candidate.entityType === 'case' && candidate.previewVisible,
   );
+  const caseIntendedChanges = collectCaseIntendedChanges(plan.actions);
+  const caseIntentFieldViews = Object.entries(CASE_INPUT_FIELD_LABELS)
+    .map(([fieldKey, fieldLabel]) => {
+      const value = caseIntendedChanges[fieldKey];
+      return buildFieldView(fieldLabel, typeof value === 'string' ? value : '');
+    })
+    .filter((fieldView) => isMeaningfulValue(fieldView.value));
 
   const input_fields = mergeFieldViews(
     [
@@ -219,6 +232,7 @@ function buildCaseDisplaySection(
           caseActions.map((action) => action.target.episodeStartDate ?? action.target.visitDate).filter(isMeaningfulValue),
         ),
       ),
+      ...caseIntentFieldViews,
     ],
     readablePreview.case_summary.representative_fields,
   );
@@ -230,6 +244,21 @@ function buildCaseDisplaySection(
     input_fields,
     representative_fields: [...readablePreview.case_summary.representative_fields],
   };
+}
+
+function collectCaseIntendedChanges(actions: WriteAction[]): Record<string, unknown> {
+  return actions
+    .filter((action) => action.entityType === 'case')
+    .reduce<Record<string, unknown>>((merged, action) => {
+      const intended = action.payloadIntent?.intendedChanges;
+      if (!intended) {
+        return merged;
+      }
+      return {
+        ...merged,
+        ...intended,
+      };
+    }, {});
 }
 
 function buildFindingsDisplay(

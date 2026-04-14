@@ -53,6 +53,13 @@ const SNAPSHOT_INPUT_FIELD_LABELS = {
         reasoningNotes: 'Reasoning notes',
     },
 };
+const CASE_INPUT_FIELD_LABELS = {
+    finalProsthesisPlanDate: 'Final prosthesis plan date',
+    finalPrepAndScanDate: 'Final prep & scan date',
+    finalProsthesisDeliveryDate: 'Final prosthesis delivery date',
+    latestPostDeliveryFollowUpDate: 'Latest post-delivery follow-up date',
+    latestPostDeliveryFollowUpResult: 'Latest post-delivery follow-up result',
+};
 export function buildDisplay(input) {
     const { request, preview, plan, readablePreview, interaction, message, requiresConfirmation } = input;
     return {
@@ -123,15 +130,21 @@ function buildVisitDisplaySection(request, readablePreview, plan) {
     };
 }
 function buildCaseDisplaySection(request, readablePreview, plan) {
-    const caseActions = plan.actions.filter((candidate) => candidate.entityType === 'case' &&
-        candidate.previewVisible &&
-        candidate.actionType !== 'update_case_latest_synthesis');
+    const caseActions = plan.actions.filter((candidate) => candidate.entityType === 'case' && candidate.previewVisible);
+    const caseIntendedChanges = collectCaseIntendedChanges(plan.actions);
+    const caseIntentFieldViews = Object.entries(CASE_INPUT_FIELD_LABELS)
+        .map(([fieldKey, fieldLabel]) => {
+        const value = caseIntendedChanges[fieldKey];
+        return buildFieldView(fieldLabel, typeof value === 'string' ? value : '');
+    })
+        .filter((fieldView) => isMeaningfulValue(fieldView.value));
     const input_fields = mergeFieldViews([
         buildFieldView('Patient ID', joinUniqueValues(caseActions.map((action) => action.target.patientId).filter(isMeaningfulValue)) ||
             request.contract.patientClues.patientId ||
             ''),
         buildFieldView('Tooth number', joinUniqueValues(caseActions.map((action) => action.target.toothNumber).filter(isMeaningfulValue))),
         buildFieldView('Episode start date', joinUniqueValues(caseActions.map((action) => action.target.episodeStartDate ?? action.target.visitDate).filter(isMeaningfulValue))),
+        ...caseIntentFieldViews,
     ], readablePreview.case_summary.representative_fields);
     return {
         label: readablePreview.case_summary.label,
@@ -140,6 +153,20 @@ function buildCaseDisplaySection(request, readablePreview, plan) {
         input_fields,
         representative_fields: [...readablePreview.case_summary.representative_fields],
     };
+}
+function collectCaseIntendedChanges(actions) {
+    return actions
+        .filter((action) => action.entityType === 'case')
+        .reduce((merged, action) => {
+        const intended = action.payloadIntent?.intendedChanges;
+        if (!intended) {
+            return merged;
+        }
+        return {
+            ...merged,
+            ...intended,
+        };
+    }, {});
 }
 function buildFindingsDisplay(readablePreview, plan) {
     return readablePreview.findings.map((finding) => {

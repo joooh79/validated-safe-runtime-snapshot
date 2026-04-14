@@ -12,6 +12,13 @@ import type { WritePlan, WriteAction } from '../../types/write-plan.js';
 
 const CURRENT_STATE_UNAVAILABLE = '(current-state unavailable)';
 const EMPTY_PLACEHOLDER = '(empty)';
+const CASE_FIELD_LABELS: Record<string, string> = {
+  finalProsthesisPlanDate: 'Final prosthesis plan date',
+  finalPrepAndScanDate: 'Final prep & scan date',
+  finalProsthesisDeliveryDate: 'Final prosthesis delivery date',
+  latestPostDeliveryFollowUpDate: 'Latest post-delivery follow-up date',
+  latestPostDeliveryFollowUpResult: 'Latest post-delivery follow-up result',
+};
 
 const SNAPSHOT_FIELD_LABELS: Record<
   SnapshotBranch,
@@ -199,6 +206,7 @@ function buildCaseSummary(
 ): ApiReadableSummaryBlock {
   const representative_fields: ApiRepresentativeFieldView[] = [];
   const caseResolution = plan.resolution.caseResolution;
+  const caseIntendedChanges = collectCaseIntendedChanges(plan.actions);
   const details = [
     ...(preview.caseBlock.details ?? []),
     ...buildCaseCandidateDetails(caseResolution),
@@ -223,6 +231,16 @@ function buildCaseSummary(
       field: 'Episode start date',
       value: caseResolution.episodeStartDate,
     });
+  }
+
+  for (const [fieldKey, fieldLabel] of Object.entries(CASE_FIELD_LABELS)) {
+    const value = caseIntendedChanges[fieldKey];
+    if (typeof value === 'string' && value.trim()) {
+      representative_fields.push({
+        field: fieldLabel,
+        value: value.trim(),
+      });
+    }
   }
 
   const targetTeeth = caseResolution.targets?.map((target) => target.toothNumber) ?? [];
@@ -259,6 +277,23 @@ function buildCaseSummary(
     details,
     representative_fields,
   };
+}
+
+function collectCaseIntendedChanges(
+  actions: WriteAction[],
+): Record<string, unknown> {
+  return actions
+    .filter((action) => action.entityType === 'case')
+    .reduce<Record<string, unknown>>((merged, action) => {
+      const intended = action.payloadIntent?.intendedChanges;
+      if (!intended) {
+        return merged;
+      }
+      return {
+        ...merged,
+        ...intended,
+      };
+    }, {});
 }
 
 function buildCaseCandidateDetails(
