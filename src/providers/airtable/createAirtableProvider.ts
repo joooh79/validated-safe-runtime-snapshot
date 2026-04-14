@@ -36,6 +36,7 @@ export interface AirtableProviderConfig {
   baseId: string;
   apiToken: string;
   requestExecutor: 'real' | 'dryrun' | 'mock';
+  apiBaseUrl?: string;
   mappingRegistry?: ReturnType<typeof createDefaultMappingRegistry>;
 }
 
@@ -70,6 +71,11 @@ export function createAirtableProvider(
   requestExecutor?: RequestExecutor,
 ): DirectWriteProvider {
   const registry = config.mappingRegistry || createDefaultMappingRegistry();
+  const resolvedRequestExecutor =
+    requestExecutor ??
+    (config.requestExecutor === 'real'
+      ? createFetchRequestExecutor(config)
+      : undefined);
 
   return {
     async preflightPlan(
@@ -214,7 +220,7 @@ export function createAirtableProvider(
         }
 
         // Execute through request executor if available
-        if (!requestExecutor) {
+        if (!resolvedRequestExecutor) {
           return {
             actionId: action.actionId,
             actionType: action.actionType,
@@ -239,7 +245,7 @@ export function createAirtableProvider(
               };
 
         // Execute request
-        const response = await requestExecutor.execute(request);
+        const response = await resolvedRequestExecutor.execute(request);
 
         if (!response.success) {
           return {
@@ -266,6 +272,99 @@ export function createAirtableProvider(
       }
     },
   };
+}
+
+function createFetchRequestExecutor(
+  config: AirtableProviderConfig,
+): RequestExecutor {
+  const apiBaseUrl = (config.apiBaseUrl ?? 'https://api.airtable.com/v0').replace(/\/$/, '');
+
+  return {
+    async execute(request: CreateRequest | UpdateRequest): Promise<ExecutorResponse> {
+      const url =
+        request.type === 'update'
+          ? `${apiBaseUrl}/${encodeURIComponent(config.baseId)}/${encodeURIComponent(request.table)}/${encodeURIComponent(request.recordId)}`
+          : `${apiBaseUrl}/${encodeURIComponent(config.baseId)}/${encodeURIComponent(request.table)}`;
+
+      try {
+        const response = await fetch(url, {
+          method: request.type === 'update' ? 'PATCH' : 'POST',
+          headers: {
+            Authorization: `Bearer ${config.apiToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            fields: request.fields,
+          }),
+        });
+
+        const responseBody = await parseExecutorResponseBody(response);
+
+        if (!response.ok) {
+          return {
+            success: false,
+            error: extractExecutorError(response, responseBody),
+          };
+        }
+
+        const recordId =
+          isExecutorRecord(responseBody) && typeof responseBody.id === 'string'
+            ? responseBody.id
+            : undefined;
+
+        return {
+          success: true,
+          ...(recordId ? { recordId } : {}),
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    },
+  };
+}
+
+async function parseExecutorResponseBody(
+  response: Response,
+): Promise<unknown> {
+  const rawBody = await response.text();
+  if (!rawBody.trim()) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(rawBody) as unknown;
+  } catch {
+    return rawBody;
+  }
+}
+
+function extractExecutorError(
+  response: Response,
+  responseBody: unknown,
+): string {
+  if (isExecutorRecord(responseBody)) {
+    const nestedError = responseBody.error;
+    if (isExecutorRecord(nestedError) && typeof nestedError.message === 'string') {
+      return nestedError.message;
+    }
+
+    if (typeof responseBody.message === 'string') {
+      return responseBody.message;
+    }
+  }
+
+  if (typeof responseBody === 'string' && responseBody.trim()) {
+    return responseBody;
+  }
+
+  return `Airtable request failed with status ${response.status}.`;
+}
+
+function isExecutorRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 /**

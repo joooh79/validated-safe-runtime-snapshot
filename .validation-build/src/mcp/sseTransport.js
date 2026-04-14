@@ -423,7 +423,13 @@ function sanitizePayloadForPreview(payload) {
         return payload;
     }
     const cloned = sortDeep(payload);
+    delete cloned.requestId;
     const interactionInput = cloned.interactionInput;
+    const normalizedContract = cloned.normalizedContract;
+    if (isRecord(normalizedContract)) {
+        delete normalizedContract.requestId;
+        delete normalizedContract.warnings;
+    }
     if (isRecord(interactionInput) && isRecord(interactionInput.confirmation)) {
         const sanitizedInteraction = { ...interactionInput };
         delete sanitizedInteraction.confirmation;

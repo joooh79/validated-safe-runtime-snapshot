@@ -76,6 +76,7 @@ function resolveDefaultProviderConfig(
   env: NodeJS.ProcessEnv,
 ): ApiProviderConfig {
   const rawMode = env.AIRTABLE_MODE;
+  const apiBaseUrl = normalizeOptionalUrl(env.AIRTABLE_API_BASE_URL, 'AIRTABLE_API_BASE_URL');
 
   if (
     rawMode !== undefined &&
@@ -108,6 +109,7 @@ function resolveDefaultProviderConfig(
       mode: 'real',
       baseId,
       apiToken,
+      ...(apiBaseUrl ? { apiBaseUrl } : {}),
     };
   }
 
@@ -117,6 +119,7 @@ function resolveDefaultProviderConfig(
       mode: 'real',
       baseId,
       apiToken,
+      ...(apiBaseUrl ? { apiBaseUrl } : {}),
     };
   }
 
@@ -170,4 +173,20 @@ function normalizeOptionalString(value: string | undefined): string | null {
 
   const trimmed = value.trim();
   return trimmed ? trimmed : null;
+}
+
+function normalizeOptionalUrl(
+  value: string | undefined,
+  envName: string,
+): string | undefined {
+  const normalized = normalizeOptionalString(value);
+  if (!normalized) {
+    return undefined;
+  }
+
+  try {
+    return new URL(normalized).toString().replace(/\/$/, '');
+  } catch {
+    throw new Error(`${envName} must be a valid absolute URL.`);
+  }
 }

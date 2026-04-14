@@ -182,6 +182,55 @@ test('MCP execute is allowed after preview for the same payload in the same sess
     assert.equal(executeMessage.result.isError, false);
     assert.equal(executeMessage.result.structuredContent.terminalStatus, 'executed');
 });
+test('same-session execute stays allowed when only requestId and warnings differ from preview', async () => {
+    const { transport } = createTransportHarness();
+    const sseResponse = new MockResponse();
+    transport.handleSseConnection(new MockRequest('GET', SERVER_ROUTES.internalMcpSse), sseResponse);
+    const sessionId = extractSessionId(sseResponse.body);
+    const previewPayload = apiFixture_safeNewVisitPreviewRequest;
+    await transport.handleMessage(new MockRequest('POST', `${SERVER_ROUTES.internalMcpMessage}?sessionId=${sessionId}`), new MockResponse(), {
+        jsonrpc: '2.0',
+        id: 11,
+        method: 'tools/call',
+        params: {
+            name: 'preview',
+            arguments: {
+                payload: previewPayload,
+            },
+        },
+    });
+    const executePayload = {
+        ...previewPayload,
+        requestId: 'execute_same_effective_payload',
+        normalizedContract: previewPayload.normalizedContract
+            ? {
+                ...previewPayload.normalizedContract,
+                requestId: 'execute_same_effective_payload',
+                warnings: ['execute follow-up request'],
+            }
+            : undefined,
+        interactionInput: {
+            confirmation: {
+                confirmed: true,
+            },
+        },
+    };
+    await transport.handleMessage(new MockRequest('POST', `${SERVER_ROUTES.internalMcpMessage}?sessionId=${sessionId}`), new MockResponse(), {
+        jsonrpc: '2.0',
+        id: 12,
+        method: 'tools/call',
+        params: {
+            name: 'execute',
+            arguments: {
+                payload: executePayload,
+            },
+        },
+    });
+    const executeMessage = extractLastSseEvent(sseResponse.body, 'message');
+    assert.equal(executeMessage.id, 12);
+    assert.equal(executeMessage.result.isError, false);
+    assert.equal(executeMessage.result.structuredContent.terminalStatus, 'executed');
+});
 test('same payload plus confirmation bit only is allowed on the direct preview/execute MCP methods', async () => {
     const { transport } = createTransportHarness();
     const sseResponse = new MockResponse();
@@ -256,6 +305,44 @@ test('MCP execute stays blocked when the payload changed beyond the confirmation
     assert.equal(executeMessage.id, 10);
     assert.equal(executeMessage.result.isError, true);
     assert.match(executeMessage.result.structuredContent.message, /The payload changed after preview/);
+});
+test('real mode provider config is resolved from trusted server env without payload secrets', () => {
+    const config = resolveServerEnv({
+        AIRTABLE_MODE: 'real',
+        AIRTABLE_BASE_ID: 'app_server_env',
+        AIRTABLE_API_TOKEN: 'pat_server_env',
+        AIRTABLE_API_BASE_URL: 'http://127.0.0.1:9999',
+        TRUST_PROXY_AUTH: 'false',
+    });
+    const request = buildInternalOrchestrationRequest(SERVER_ROUTES.internalPreview, {
+        normalizedContract: apiFixture_safeNewVisitPreviewRequest.normalizedContract,
+        lookupBundle: apiFixture_safeNewVisitPreviewRequest.lookupBundle,
+        providerConfig: {
+            kind: 'airtable',
+            mode: 'real',
+        },
+    }, config);
+    assert.deepEqual(request.providerConfig, {
+        kind: 'airtable',
+        mode: 'real',
+        baseId: 'app_server_env',
+        apiToken: 'pat_server_env',
+        apiBaseUrl: 'http://127.0.0.1:9999',
+    });
+});
+test('real mode without server env secrets fails with a server-config error, not a payload-shape error', () => {
+    const config = resolveServerEnv({
+        AIRTABLE_MODE: 'dryrun',
+        TRUST_PROXY_AUTH: 'false',
+    });
+    assert.throws(() => buildInternalOrchestrationRequest(SERVER_ROUTES.internalPreview, {
+        normalizedContract: apiFixture_safeNewVisitPreviewRequest.normalizedContract,
+        lookupBundle: apiFixture_safeNewVisitPreviewRequest.lookupBundle,
+        providerConfig: {
+            kind: 'airtable',
+            mode: 'real',
+        },
+    }, config), /AIRTABLE_BASE_ID and AIRTABLE_API_TOKEN on the server/);
 });
 function createTransportHarness() {
     const sessionManager = createMcpSessionManager({

@@ -347,9 +347,10 @@ export function buildInternalOrchestrationRequest(
     ...(payload as ApiOrchestrationRequest),
   };
 
-  if (!request.providerConfig) {
-    request.providerConfig = config.defaultProviderConfig;
-  }
+  request.providerConfig = resolveTrustedProviderConfig(
+    request.providerConfig,
+    config,
+  );
 
   if (pathname === SERVER_ROUTES.internalPreview) {
     request.interactionInput = {
@@ -372,6 +373,57 @@ export function buildInternalOrchestrationRequest(
   }
 
   return request;
+}
+
+function resolveTrustedProviderConfig(
+  requestProviderConfig: ApiOrchestrationRequest['providerConfig'],
+  config: ServerEnvConfig,
+): NonNullable<ApiOrchestrationRequest['providerConfig']> {
+  const defaultProviderConfig = config.defaultProviderConfig;
+
+  if (
+    requestProviderConfig &&
+    requestProviderConfig.kind !== defaultProviderConfig.kind
+  ) {
+    return requestProviderConfig;
+  }
+
+  const finalMode = requestProviderConfig?.mode ?? defaultProviderConfig.mode;
+
+  if (finalMode === 'real') {
+    const baseId = requestProviderConfig?.baseId ?? defaultProviderConfig.baseId;
+    const apiToken = requestProviderConfig?.apiToken ?? defaultProviderConfig.apiToken;
+    const apiBaseUrl =
+      requestProviderConfig?.apiBaseUrl ?? defaultProviderConfig.apiBaseUrl;
+
+    if (!baseId || !apiToken) {
+      throw new HttpError(
+        500,
+        'server_provider_config_missing',
+        'Real Airtable mode requires AIRTABLE_BASE_ID and AIRTABLE_API_TOKEN on the server.',
+      );
+    }
+
+    return {
+      kind: 'airtable',
+      mode: 'real',
+      baseId,
+      apiToken,
+      ...(apiBaseUrl ? { apiBaseUrl } : {}),
+    };
+  }
+
+  if (finalMode === 'mock') {
+    return {
+      kind: 'airtable',
+      mode: 'mock',
+    };
+  }
+
+  return {
+    kind: 'airtable',
+    mode: 'dryrun',
+  };
 }
 
 async function handleMcpToolCall(

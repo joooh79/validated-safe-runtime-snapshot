@@ -193,13 +193,14 @@ function resolveProvider(request: ApiOrchestrationRequest) {
   if (config.mode === 'real') {
     if (!config.baseId || !config.apiToken) {
       throw new Error(
-        'Real Airtable provider config requires baseId and apiToken.',
+        'Real Airtable mode requires AIRTABLE_BASE_ID and AIRTABLE_API_TOKEN on the server.',
       );
     }
 
     return createAirtableProvider({
       baseId: config.baseId,
       apiToken: config.apiToken,
+      ...(config.apiBaseUrl ? { apiBaseUrl: config.apiBaseUrl } : {}),
       requestExecutor: 'real',
     });
   }

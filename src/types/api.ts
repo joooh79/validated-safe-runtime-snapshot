@@ -199,6 +199,7 @@ export interface ApiProviderConfig {
   mode: 'dryrun' | 'mock' | 'real';
   baseId?: string;
   apiToken?: string;
+  apiBaseUrl?: string;
 }
 
 export interface ApiInteractionInput {

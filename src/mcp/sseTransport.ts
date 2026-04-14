@@ -578,7 +578,14 @@ function sanitizePayloadForPreview(payload: unknown): unknown {
   }
 
   const cloned = sortDeep(payload) as Record<string, unknown>;
+  delete cloned.requestId;
   const interactionInput = cloned.interactionInput;
+  const normalizedContract = cloned.normalizedContract;
+
+  if (isRecord(normalizedContract)) {
+    delete normalizedContract.requestId;
+    delete normalizedContract.warnings;
+  }
 
   if (isRecord(interactionInput) && isRecord(interactionInput.confirmation)) {
     const sanitizedInteraction = { ...interactionInput };

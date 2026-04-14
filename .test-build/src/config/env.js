@@ -31,6 +31,7 @@ export function resolveServerEnv(env = process.env) {
 }
 function resolveDefaultProviderConfig(env) {
     const rawMode = env.AIRTABLE_MODE;
+    const apiBaseUrl = normalizeOptionalUrl(env.AIRTABLE_API_BASE_URL, 'AIRTABLE_API_BASE_URL');
     if (rawMode !== undefined &&
         rawMode !== 'dryrun' &&
         rawMode !== 'mock' &&
@@ -54,6 +55,7 @@ function resolveDefaultProviderConfig(env) {
             mode: 'real',
             baseId,
             apiToken,
+            ...(apiBaseUrl ? { apiBaseUrl } : {}),
         };
     }
     if (baseId && apiToken) {
@@ -62,6 +64,7 @@ function resolveDefaultProviderConfig(env) {
             mode: 'real',
             baseId,
             apiToken,
+            ...(apiBaseUrl ? { apiBaseUrl } : {}),
         };
     }
     return {
@@ -97,4 +100,16 @@ function normalizeOptionalString(value) {
     }
     const trimmed = value.trim();
     return trimmed ? trimmed : null;
+}
+function normalizeOptionalUrl(value, envName) {
+    const normalized = normalizeOptionalString(value);
+    if (!normalized) {
+        return undefined;
+    }
+    try {
+        return new URL(normalized).toString().replace(/\/$/, '');
+    }
+    catch {
+        throw new Error(`${envName} must be a valid absolute URL.`);
+    }
 }
