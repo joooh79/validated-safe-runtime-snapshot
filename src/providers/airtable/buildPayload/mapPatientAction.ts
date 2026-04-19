@@ -124,8 +124,10 @@ export function mapPatientAction(input: MapPatientActionInput): MapPatientAction
 
     case 'update_patient': {
       // Update existing patient record
-      // recordId comes from target.patientId
-      const recordId = action.target.patientId;
+      // Existing patient updates must target the provider row ref when available.
+      // `patientId` is the business identifier, while `entityRef` carries the
+      // Airtable record id resolved during lookup/enrichment.
+      const recordId = action.target.entityRef || action.target.patientId;
       if (!recordId || recordId === 'NEW') {
         return {
           success: false,

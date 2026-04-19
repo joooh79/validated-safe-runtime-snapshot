@@ -104,7 +104,8 @@ test('update_patient writes existing patient demographics without requiring a vi
         entityType: 'patient',
         targetMode: 'update_existing',
         target: {
-            patientId: 'rec_patient_196872',
+            patientId: '196872',
+            entityRef: 'rec_patient_196872',
             sourceResolutionPath: 'resolved_existing_patient',
         },
         payloadIntent: {
