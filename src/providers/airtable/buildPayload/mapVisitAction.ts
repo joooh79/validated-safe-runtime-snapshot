@@ -127,6 +127,31 @@ export function mapVisitAction(input: MapVisitActionInput): MapVisitActionOutput
         }
       }
 
+      if ('episodeStartVisit' in intended) {
+        const episodeStartVisit = intended.episodeStartVisit;
+        if (typeof episodeStartVisit === 'string' && episodeStartVisit.trim()) {
+          const episodeStartVisitLink = buildLinkedRecordCell({
+            dependencyActionId: undefined,
+            resolvedRefs,
+            requireRuntimeRefs,
+            fallbackRef: episodeStartVisit,
+            canonField: 'Visits.Episode start visit',
+            table: 'Visits',
+            missingRefMessage:
+              'create_visit requires a resolved episode-start visit reference when writing the helper link',
+          });
+
+          if (isAdapterError(episodeStartVisitLink)) {
+            return {
+              success: false,
+              error: episodeStartVisitLink,
+            };
+          }
+
+          fields[registry.visitFields.episodeStartVisit.fieldName] = episodeStartVisitLink;
+        }
+      }
+
       // Optional: Chief complaint
       if ('chiefComplaint' in intended) {
         const complaint = intended.chiefComplaint;
@@ -142,6 +167,31 @@ export function mapVisitAction(input: MapVisitActionInput): MapVisitActionOutput
         const norm = normalizeNumber(pain);
         if (typeof norm === 'number') {
           fields[registry.visitFields.painLevel.fieldName] = norm;
+        }
+      }
+
+      if ('episodeStartVisit' in intended) {
+        const episodeStartVisit = intended.episodeStartVisit;
+        if (typeof episodeStartVisit === 'string' && episodeStartVisit.trim()) {
+          const episodeStartVisitLink = buildLinkedRecordCell({
+            dependencyActionId: undefined,
+            resolvedRefs,
+            requireRuntimeRefs,
+            fallbackRef: episodeStartVisit,
+            canonField: 'Visits.Episode start visit',
+            table: 'Visits',
+            missingRefMessage:
+              'update_visit requires a resolved episode-start visit reference when writing the helper link',
+          });
+
+          if (isAdapterError(episodeStartVisitLink)) {
+            return {
+              success: false,
+              error: episodeStartVisitLink,
+            };
+          }
+
+          fields[registry.visitFields.episodeStartVisit.fieldName] = episodeStartVisitLink;
         }
       }
 

@@ -31,7 +31,7 @@
 import type { StateResolutionResult } from '../types/resolution.js';
 import type { WriteAction, WritePlan } from '../types/write-plan.js';
 import type { SnapshotBranch } from '../types/core.js';
-import type { PatientClues, VisitContext } from '../types/contract.js';
+import type { PatientClues, VisitContext, ToothFindingsItem } from '../types/contract.js';
 import type { CurrentStateLookupBundle } from '../resolution/index.js';
 import { buildPatientActions } from './rules/buildPatientActions.js';
 import { buildVisitActions } from './rules/buildVisitActions.js';
@@ -39,10 +39,12 @@ import { buildCaseActions } from './rules/buildCaseActions.js';
 import { buildSnapshotActions, type SnapshotBranchIntent } from './rules/buildSnapshotActions.js';
 import { snapshotBranchIntentProducesWrite } from './rules/compareSnapshotPayload.js';
 import { buildLinkActions, type BuildLinkActionsInput } from './rules/buildLinkActions.js';
+import { buildFollowUpActions } from './rules/buildFollowUpActions.js';
 import { buildPlanWarnings } from './rules/buildPlanWarnings.js';
 import { buildPreviewSummary } from './rules/buildPreviewSummary.js';
 import { computePlanReadiness } from './rules/computePlanReadiness.js';
 import { buildDeterministicVisitId } from './helpers/visitId.js';
+import { extractContinuationPayload } from './rules/extractContinuationPayload.js';
 
 export interface BuildWritePlanInput {
   resolution: StateResolutionResult;
@@ -67,6 +69,7 @@ export interface BuildWritePlanInput {
   hasVisitLevelChanges?: boolean;
   patientClues?: PatientClues;
   visitContext?: VisitContext;
+  toothItems?: ToothFindingsItem[];
 }
 
 /**
@@ -83,6 +86,7 @@ export async function buildWritePlan(input: BuildWritePlanInput): Promise<WriteP
     hasVisitLevelChanges,
     patientClues,
     visitContext,
+    toothItems,
   } = input;
 
   // Generate plan ID (deterministic based on request)
@@ -99,6 +103,8 @@ export async function buildWritePlan(input: BuildWritePlanInput): Promise<WriteP
   const hasSnapshotWrites = branchIntents.some((intent) =>
     snapshotBranchIntentProducesWrite(intent, snapshotLookups),
   );
+  const continuationPayload = extractContinuationPayload(toothItems);
+  const episodeStartVisitId = resolveSafeEpisodeStartVisitId(resolution);
 
   // Step 1: Build patient actions
   const patientActions = buildPatientActions({
@@ -129,6 +135,7 @@ export async function buildWritePlan(input: BuildWritePlanInput): Promise<WriteP
     visitType: visitContext?.visitType,
     chiefComplaint: visitContext?.chiefComplaint,
     painLevel: visitContext?.painLevel,
+    episodeStartVisitId,
   });
 
   if (visitActions.length === 0) {
@@ -146,6 +153,7 @@ export async function buildWritePlan(input: BuildWritePlanInput): Promise<WriteP
     hasCaseContent:
       hasSnapshotContent && resolution.caseResolution.status !== 'none',
     claimedPatientId: patientClues?.patientId,
+    caseIntendedChangesByTooth: continuationPayload.caseIntendedChangesByTooth,
   });
 
   // Build snapshot actions
@@ -172,6 +180,7 @@ export async function buildWritePlan(input: BuildWritePlanInput): Promise<WriteP
     hasCaseContent:
       hasSnapshotContent && resolution.caseResolution.status !== 'none',
     claimedPatientId: patientClues?.patientId,
+    caseIntendedChangesByTooth: continuationPayload.caseIntendedChangesByTooth,
   });
 
   // Step 5: Build link actions
@@ -203,20 +212,35 @@ export async function buildWritePlan(input: BuildWritePlanInput): Promise<WriteP
     linkActionInput.caseActionIdsByTooth = caseActionIdsByTooth;
   }
 
-  if (updatedCaseActions[0]?.actionId) {
-    linkActionInput.caseActionId = updatedCaseActions[0].actionId;
+  const primaryCaseAction = updatedCaseActions.find(
+    (action) => action.entityType === 'case' && action.actionType === 'create_case',
+  );
+  if (primaryCaseAction?.actionId) {
+    linkActionInput.caseActionId = primaryCaseAction.actionId;
   }
+
+  const followUpActions = buildFollowUpActions({
+    planId,
+    patientResolution: resolution.patient,
+    visitResolution: resolution.visit,
+    caseResolution: resolution.caseResolution,
+    patientActionId: patientActions[0]!.actionId,
+    visitActionId: visitActions[0]!.actionId,
+    caseActionIdsByTooth,
+    followUpIntendedChangesByTooth: continuationPayload.followUpIntendedChangesByTooth,
+  });
 
   const linkActions = buildLinkActions(linkActionInput);
 
   // Step 6: Combine all actions in order
-  const allActions = [
+  const allActions = sortActionsForExecution([
     ...patientActions,
     ...visitActions,
     ...updatedCaseActions,
     ...snapshotActions,
+    ...followUpActions,
     ...linkActions,
-  ];
+  ]);
 
   // Step 7: Build plan-level warnings
   const planWarnings = buildPlanWarnings(resolution, allActions);
@@ -280,6 +304,98 @@ function hasLinkableCaseTargets(
       resolution.caseResolution.status === 'continue_case') &&
     Boolean(resolution.caseResolution.toothNumber)
   );
+}
+
+function resolveSafeEpisodeStartVisitId(
+  resolution: StateResolutionResult,
+): string | undefined {
+  const caseTargets =
+    resolution.caseResolution.targets && resolution.caseResolution.targets.length > 0
+      ? resolution.caseResolution.targets
+      : resolution.caseResolution.status === 'continue_case' &&
+          resolution.caseResolution.resolvedCaseId
+        ? [
+            {
+              status: 'continue_case' as const,
+              toothNumber: resolution.caseResolution.toothNumber ?? 'unknown',
+              resolvedCaseId: resolution.caseResolution.resolvedCaseId,
+              reasons: [...resolution.caseResolution.reasons],
+            },
+          ]
+        : [];
+  if (caseTargets.length !== 1) {
+    return undefined;
+  }
+
+  const target = caseTargets[0]!;
+  if (target.status !== 'continue_case' || !target.resolvedCaseId) {
+    return undefined;
+  }
+
+  const candidate = target.resolvedCaseId.trim();
+  return candidate.startsWith('VISIT-') ? candidate : undefined;
+}
+
+function sortActionsForExecution(actions: WriteAction[]): WriteAction[] {
+  const indexedActions = actions.map((action, index) => ({ action, index }));
+  const actionIds = new Set(actions.map((action) => action.actionId));
+  const dependencyCounts = new Map<string, number>();
+  const downstreamByDependency = new Map<string, string[]>();
+
+  for (const { action } of indexedActions) {
+    const relevantDependencies = action.dependsOnActionIds.filter((depId) => actionIds.has(depId));
+    dependencyCounts.set(action.actionId, relevantDependencies.length);
+
+    for (const depId of relevantDependencies) {
+      const downstream = downstreamByDependency.get(depId) ?? [];
+      downstream.push(action.actionId);
+      downstreamByDependency.set(depId, downstream);
+    }
+  }
+
+  const readyQueue = indexedActions
+    .filter(({ action }) => (dependencyCounts.get(action.actionId) ?? 0) === 0)
+    .sort(compareIndexedActions);
+  const sorted: WriteAction[] = [];
+
+  while (readyQueue.length > 0) {
+    const next = readyQueue.shift();
+    if (!next) {
+      break;
+    }
+
+    sorted.push(next.action);
+
+    for (const dependentId of downstreamByDependency.get(next.action.actionId) ?? []) {
+      const remainingDeps = (dependencyCounts.get(dependentId) ?? 0) - 1;
+      dependencyCounts.set(dependentId, remainingDeps);
+
+      if (remainingDeps === 0) {
+        const dependent = indexedActions.find(({ action }) => action.actionId === dependentId);
+        if (dependent) {
+          readyQueue.push(dependent);
+          readyQueue.sort(compareIndexedActions);
+        }
+      }
+    }
+  }
+
+  if (sorted.length === actions.length) {
+    return sorted;
+  }
+
+  return [...indexedActions].sort(compareIndexedActions).map(({ action }) => action);
+}
+
+function compareIndexedActions(
+  left: { action: WriteAction; index: number },
+  right: { action: WriteAction; index: number },
+): number {
+  if (left.action.actionOrder !== right.action.actionOrder) {
+    return left.action.actionOrder - right.action.actionOrder;
+  }
+
+  return left.index - right.index;
 }
 
 /**

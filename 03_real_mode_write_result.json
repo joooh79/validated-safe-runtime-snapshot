@@ -1,0 +1,137 @@
+{
+  "requestId": "req_916872_20221019_14_continue_real_001",
+  "success": true,
+  "apiState": "execution_complete",
+  "terminalStatus": "executed",
+  "interactionMode": "preview_confirmation",
+  "readiness": "execution_ready",
+  "didWrite": true,
+  "message": "✓ Execution complete: 12 action(s) succeeded",
+  "executionResult": {
+    "planId": "plan_req_9168",
+    "requestId": "req_916872_20221019_14_continue_real_001",
+    "status": "success",
+    "actionResults": [
+      {
+        "actionId": "action_00q01c58_1",
+        "actionType": "attach_existing_patient",
+        "status": "success",
+        "providerRef": "recX9vUWrYXA5514E"
+      },
+      {
+        "actionId": "action_00e4ag7e_2",
+        "actionType": "create_visit",
+        "status": "success",
+        "providerRef": "rec0maT1gnGwTqZUd"
+      },
+      {
+        "actionId": "action_00pxphlb_6",
+        "actionType": "update_case_latest_synthesis",
+        "status": "skipped",
+        "errorMessage": "dependency not yet completed: action_00t5owh6_4"
+      },
+      {
+        "actionId": "action_00t5owh6_4",
+        "actionType": "create_snapshot",
+        "status": "success",
+        "providerRef": "recG73Sv4CGqyKyW8"
+      },
+      {
+        "actionId": "action_00lkgrrv_5",
+        "actionType": "create_snapshot",
+        "status": "success",
+        "providerRef": "rec43aRg9mEyurZqI"
+      },
+      {
+        "actionId": "action_00x14c7j_6",
+        "actionType": "create_snapshot",
+        "status": "success",
+        "providerRef": "recy0tSTuJ65WyQDS"
+      },
+      {
+        "actionId": "action_0023gahn_7",
+        "actionType": "create_snapshot",
+        "status": "success",
+        "providerRef": "recEwkkL4LbuE0dC3"
+      },
+      {
+        "actionId": "action_00f2okdx_8",
+        "actionType": "create_snapshot",
+        "status": "success",
+        "providerRef": "recBqfBwoJAebxWoe"
+      },
+      {
+        "actionId": "action_00bvdily_5",
+        "actionType": "link_visit_to_case",
+        "status": "skipped",
+        "errorMessage": "upstream dependency failed: action_00pxphlb_6"
+      },
+      {
+        "actionId": "action_00t813ny_6",
+        "actionType": "link_snapshot_to_case",
+        "status": "success",
+        "providerRef": "recG73Sv4CGqyKyW8"
+      },
+      {
+        "actionId": "action_00hrdiz0_7",
+        "actionType": "link_snapshot_to_case",
+        "status": "success",
+        "providerRef": "rec43aRg9mEyurZqI"
+      },
+      {
+        "actionId": "action_006apya2_8",
+        "actionType": "link_snapshot_to_case",
+        "status": "success",
+        "providerRef": "recy0tSTuJ65WyQDS"
+      },
+      {
+        "actionId": "action_0055xmew_9",
+        "actionType": "link_snapshot_to_case",
+        "status": "success",
+        "providerRef": "recEwkkL4LbuE0dC3"
+      },
+      {
+        "actionId": "action_00ste1js_10",
+        "actionType": "link_snapshot_to_case",
+        "status": "success",
+        "providerRef": "recBqfBwoJAebxWoe"
+      }
+    ],
+    "completedActionIds": [
+      "action_00q01c58_1",
+      "action_00e4ag7e_2",
+      "action_00t5owh6_4",
+      "action_00lkgrrv_5",
+      "action_00x14c7j_6",
+      "action_0023gahn_7",
+      "action_00f2okdx_8",
+      "action_00t813ny_6",
+      "action_00hrdiz0_7",
+      "action_006apya2_8",
+      "action_0055xmew_9",
+      "action_00ste1js_10"
+    ],
+    "failedActionIds": [],
+    "skippedActionIds": [
+      "action_00pxphlb_6",
+      "action_00bvdily_5"
+    ],
+    "createdRefs": {
+      "visit_action_00e4ag7e_2": "rec0maT1gnGwTqZUd",
+      "snapshot_action_00t5owh6_4": "recG73Sv4CGqyKyW8",
+      "snapshot_action_00lkgrrv_5": "rec43aRg9mEyurZqI",
+      "snapshot_action_00x14c7j_6": "recy0tSTuJ65WyQDS",
+      "snapshot_action_0023gahn_7": "recEwkkL4LbuE0dC3",
+      "snapshot_action_00f2okdx_8": "recBqfBwoJAebxWoe"
+    },
+    "updatedRefs": {
+      "link_action_00t813ny_6": "recG73Sv4CGqyKyW8",
+      "link_action_00hrdiz0_7": "rec43aRg9mEyurZqI",
+      "link_action_006apya2_8": "recy0tSTuJ65WyQDS",
+      "link_action_0055xmew_9": "recEwkkL4LbuE0dC3",
+      "link_action_00ste1js_10": "recBqfBwoJAebxWoe"
+    },
+    "replayEligible": false,
+    "summary": "✓ Execution complete: 12 action(s) succeeded"
+  }
+}

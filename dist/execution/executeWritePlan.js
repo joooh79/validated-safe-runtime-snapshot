@@ -23,7 +23,6 @@
  * 8. Build execution summary
  * 9. Return complete ExecutionResult
  */
-import { shouldSkipAction } from './rules/shouldSkipAction.js';
 import { computeExecutionStatus } from './rules/computeExecutionStatus.js';
 import { collectExecutionRefs } from './rules/collectExecutionRefs.js';
 import { computeReplayEligibility } from './rules/computeReplayEligibility.js';
@@ -87,62 +86,83 @@ export async function executeWritePlan(input) {
     const completedActionIds = [];
     const failedActionIds = [];
     const skippedActionIds = [];
-    for (const action of plan.actions) {
-        // Check if action should be skipped
-        const skipReason = shouldSkipAction(action, actionResults);
-        if (skipReason) {
-            // Skip this action
-            const skipResult = {
-                actionId: action.actionId,
-                actionType: action.actionType,
-                status: 'skipped',
-                errorMessage: skipReason,
-            };
-            actionResults.push(skipResult);
-            skippedActionIds.push(action.actionId);
-            continue;
-        }
-        // Check if action is no-op
-        if (action.actionType.startsWith('no_op')) {
-            const noOpResult = {
-                actionId: action.actionId,
-                actionType: action.actionType,
-                status: 'no_op',
-            };
-            actionResults.push(noOpResult);
-            // no-op actions don't contribute to completion tracking for dependency purposes
-            continue;
-        }
-        // Execute action through provider
-        try {
-            const providerResult = await provider.executeAction(action, ctx);
-            // Preserve provider result
-            actionResults.push(providerResult);
-            if (providerResult.status === 'success') {
-                completedActionIds.push(action.actionId);
-                // Update context refs for future actions
-                if (providerResult.providerRef) {
-                    ctx.resolvedRefs[action.actionId] = providerResult.providerRef;
+    let pendingActions = [...plan.actions];
+    while (pendingActions.length > 0) {
+        let progressedThisPass = false;
+        const deferredActions = [];
+        for (const action of pendingActions) {
+            const dependencyStatus = getDependencyStatus(action, actionResults);
+            if (dependencyStatus.kind === 'blocked') {
+                const skipResult = {
+                    actionId: action.actionId,
+                    actionType: action.actionType,
+                    status: 'skipped',
+                    errorMessage: dependencyStatus.reason,
+                };
+                actionResults.push(skipResult);
+                skippedActionIds.push(action.actionId);
+                progressedThisPass = true;
+                continue;
+            }
+            if (dependencyStatus.kind === 'pending') {
+                deferredActions.push(action);
+                continue;
+            }
+            if (action.actionType.startsWith('no_op')) {
+                const noOpResult = {
+                    actionId: action.actionId,
+                    actionType: action.actionType,
+                    status: 'no_op',
+                };
+                actionResults.push(noOpResult);
+                progressedThisPass = true;
+                continue;
+            }
+            try {
+                const providerResult = await provider.executeAction(action, ctx);
+                actionResults.push(providerResult);
+                if (providerResult.status === 'success') {
+                    completedActionIds.push(action.actionId);
+                    if (providerResult.providerRef) {
+                        ctx.resolvedRefs[action.actionId] = providerResult.providerRef;
+                    }
+                }
+                else if (providerResult.status === 'failed') {
+                    failedActionIds.push(action.actionId);
+                }
+                else if (providerResult.status === 'skipped') {
+                    skippedActionIds.push(action.actionId);
                 }
             }
-            else if (providerResult.status === 'failed') {
+            catch (error) {
+                const errorResult = {
+                    actionId: action.actionId,
+                    actionType: action.actionType,
+                    status: 'failed',
+                    errorMessage: error instanceof Error ? error.message : String(error),
+                };
+                actionResults.push(errorResult);
                 failedActionIds.push(action.actionId);
             }
-            else if (providerResult.status === 'skipped') {
+            progressedThisPass = true;
+        }
+        if (!progressedThisPass) {
+            for (const action of deferredActions) {
+                const dependencyStatus = getDependencyStatus(action, actionResults);
+                const skipResult = {
+                    actionId: action.actionId,
+                    actionType: action.actionType,
+                    status: 'skipped',
+                    errorMessage: dependencyStatus.kind === 'ready'
+                        ? 'dependency not yet completed'
+                        : dependencyStatus.reason,
+                };
+                actionResults.push(skipResult);
                 skippedActionIds.push(action.actionId);
             }
+            break;
         }
-        catch (error) {
-            // Provider threw an error; record as failed
-            const errorResult = {
-                actionId: action.actionId,
-                actionType: action.actionType,
-                status: 'failed',
-                errorMessage: error instanceof Error ? error.message : String(error),
-            };
-            actionResults.push(errorResult);
-            failedActionIds.push(action.actionId);
-        }
+        pendingActions = deferredActions;
     }
     // Step 4: Collect created/updated refs
     const { createdRefs, updatedRefs } = collectExecutionRefs(actionResults, plan.actions);
@@ -186,3 +206,27 @@ export async function executeWritePlan(input) {
 export const defaultPlanExecutor = {
     execute: (plan, provider) => executeWritePlan({ plan, provider }),
 };
+function getDependencyStatus(action, priorResults) {
+    if (action.blockers.length > 0) {
+        return {
+            kind: 'blocked',
+            reason: `blocked by: ${action.blockers.join(', ')}`,
+        };
+    }
+    for (const depId of action.dependsOnActionIds) {
+        const depResult = priorResults.find((result) => result.actionId === depId);
+        if (!depResult) {
+            return {
+                kind: 'pending',
+                reason: `dependency not yet completed: ${depId}`,
+            };
+        }
+        if (depResult.status === 'failed' || depResult.status === 'skipped') {
+            return {
+                kind: 'blocked',
+                reason: `upstream dependency failed: ${depId}`,
+            };
+        }
+    }
+    return { kind: 'ready' };
+}

@@ -1,4 +1,11 @@
-export type EntityType = 'patient' | 'visit' | 'case' | 'snapshot' | 'link' | 'system';
+export type EntityType =
+  | 'patient'
+  | 'visit'
+  | 'case'
+  | 'snapshot'
+  | 'follow_up'
+  | 'link'
+  | 'system';
 
 export type SnapshotBranch = 'PRE' | 'RAD' | 'OP' | 'DX' | 'PLAN' | 'DR';
 

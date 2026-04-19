@@ -7,6 +7,7 @@ export type WriteActionType =
   | 'attach_existing_patient'
   | 'create_visit'
   | 'update_visit'
+  | 'create_post_delivery_follow_up'
   // Reserved target-canon case action family.
   // Runtime activation remains intentionally blocked until the target Cases
   // table and related link model are migrated and verified.

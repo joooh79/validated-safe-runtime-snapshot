@@ -175,6 +175,9 @@ function buildVisitDisplaySection(
       ),
       buildFieldView('Visit date', intended.date ?? request.contract.visitContext.visitDate ?? ''),
       buildFieldView('Visit type', intended.visitType ?? request.contract.visitContext.visitType ?? ''),
+      ...(isMeaningfulValue(intended.episodeStartVisit)
+        ? [buildFieldView('Episode start visit', intended.episodeStartVisit ?? '')]
+        : []),
       buildFieldView(
         'Chief complaint',
         intended.chiefComplaint ?? request.contract.visitContext.chiefComplaint ?? '',

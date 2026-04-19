@@ -28,7 +28,6 @@ import type { ExecutionResult, ActionExecutionResult } from '../types/execution.
 import type { DirectWriteProvider, ProviderExecutionContext } from '../types/provider.js';
 import type { WritePlan, WriteAction } from '../types/write-plan.js';
 import type { ExecutionStatus } from '../types/core.js';
-import { shouldSkipAction } from './rules/shouldSkipAction.js';
 import { computeExecutionStatus } from './rules/computeExecutionStatus.js';
 import { collectExecutionRefs } from './rules/collectExecutionRefs.js';
 import { computeReplayEligibility } from './rules/computeReplayEligibility.js';
@@ -110,65 +109,93 @@ export async function executeWritePlan(
   const failedActionIds: string[] = [];
   const skippedActionIds: string[] = [];
 
-  for (const action of plan.actions) {
-    // Check if action should be skipped
-    const skipReason = shouldSkipAction(action, actionResults);
+  let pendingActions = [...plan.actions];
 
-    if (skipReason) {
-      // Skip this action
-      const skipResult: ActionExecutionResult = {
-        actionId: action.actionId,
-        actionType: action.actionType,
-        status: 'skipped',
-        errorMessage: skipReason,
-      };
-      actionResults.push(skipResult);
-      skippedActionIds.push(action.actionId);
-      continue;
-    }
+  while (pendingActions.length > 0) {
+    let progressedThisPass = false;
+    const deferredActions: WriteAction[] = [];
 
-    // Check if action is no-op
-    if (action.actionType.startsWith('no_op')) {
-      const noOpResult: ActionExecutionResult = {
-        actionId: action.actionId,
-        actionType: action.actionType,
-        status: 'no_op',
-      };
-      actionResults.push(noOpResult);
-      // no-op actions don't contribute to completion tracking for dependency purposes
-      continue;
-    }
+    for (const action of pendingActions) {
+      const dependencyStatus = getDependencyStatus(action, actionResults);
 
-    // Execute action through provider
-    try {
-      const providerResult = await provider.executeAction(action, ctx);
+      if (dependencyStatus.kind === 'blocked') {
+        const skipResult: ActionExecutionResult = {
+          actionId: action.actionId,
+          actionType: action.actionType,
+          status: 'skipped',
+          errorMessage: dependencyStatus.reason,
+        };
+        actionResults.push(skipResult);
+        skippedActionIds.push(action.actionId);
+        progressedThisPass = true;
+        continue;
+      }
 
-      // Preserve provider result
-      actionResults.push(providerResult);
+      if (dependencyStatus.kind === 'pending') {
+        deferredActions.push(action);
+        continue;
+      }
 
-      if (providerResult.status === 'success') {
-        completedActionIds.push(action.actionId);
+      if (action.actionType.startsWith('no_op')) {
+        const noOpResult: ActionExecutionResult = {
+          actionId: action.actionId,
+          actionType: action.actionType,
+          status: 'no_op',
+        };
+        actionResults.push(noOpResult);
+        progressedThisPass = true;
+        continue;
+      }
 
-        // Update context refs for future actions
-        if (providerResult.providerRef) {
-          ctx.resolvedRefs[action.actionId] = providerResult.providerRef;
+      try {
+        const providerResult = await provider.executeAction(action, ctx);
+
+        actionResults.push(providerResult);
+
+        if (providerResult.status === 'success') {
+          completedActionIds.push(action.actionId);
+
+          if (providerResult.providerRef) {
+            ctx.resolvedRefs[action.actionId] = providerResult.providerRef;
+          }
+        } else if (providerResult.status === 'failed') {
+          failedActionIds.push(action.actionId);
+        } else if (providerResult.status === 'skipped') {
+          skippedActionIds.push(action.actionId);
         }
-      } else if (providerResult.status === 'failed') {
+      } catch (error) {
+        const errorResult: ActionExecutionResult = {
+          actionId: action.actionId,
+          actionType: action.actionType,
+          status: 'failed',
+          errorMessage: error instanceof Error ? error.message : String(error),
+        };
+        actionResults.push(errorResult);
         failedActionIds.push(action.actionId);
-      } else if (providerResult.status === 'skipped') {
+      }
+
+      progressedThisPass = true;
+    }
+
+    if (!progressedThisPass) {
+      for (const action of deferredActions) {
+        const dependencyStatus = getDependencyStatus(action, actionResults);
+        const skipResult: ActionExecutionResult = {
+          actionId: action.actionId,
+          actionType: action.actionType,
+          status: 'skipped',
+          errorMessage:
+            dependencyStatus.kind === 'ready'
+              ? 'dependency not yet completed'
+              : dependencyStatus.reason,
+        };
+        actionResults.push(skipResult);
         skippedActionIds.push(action.actionId);
       }
-    } catch (error) {
-      // Provider threw an error; record as failed
-      const errorResult: ActionExecutionResult = {
-        actionId: action.actionId,
-        actionType: action.actionType,
-        status: 'failed',
-        errorMessage: error instanceof Error ? error.message : String(error),
-      };
-      actionResults.push(errorResult);
-      failedActionIds.push(action.actionId);
+      break;
     }
+
+    pendingActions = deferredActions;
   }
 
   // Step 4: Collect created/updated refs
@@ -225,3 +252,38 @@ export interface PlanExecutor {
 export const defaultPlanExecutor: PlanExecutor = {
   execute: (plan, provider) => executeWritePlan({ plan, provider }),
 };
+
+function getDependencyStatus(
+  action: WriteAction,
+  priorResults: ActionExecutionResult[],
+):
+  | { kind: 'ready' }
+  | { kind: 'pending'; reason: string }
+  | { kind: 'blocked'; reason: string } {
+  if (action.blockers.length > 0) {
+    return {
+      kind: 'blocked',
+      reason: `blocked by: ${action.blockers.join(', ')}`,
+    };
+  }
+
+  for (const depId of action.dependsOnActionIds) {
+    const depResult = priorResults.find((result) => result.actionId === depId);
+
+    if (!depResult) {
+      return {
+        kind: 'pending',
+        reason: `dependency not yet completed: ${depId}`,
+      };
+    }
+
+    if (depResult.status === 'failed' || depResult.status === 'skipped') {
+      return {
+        kind: 'blocked',
+        reason: `upstream dependency failed: ${depId}`,
+      };
+    }
+  }
+
+  return { kind: 'ready' };
+}

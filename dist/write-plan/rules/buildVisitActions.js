@@ -14,7 +14,7 @@
 import { generateActionId } from '../helpers/idGen.js';
 import { buildDeterministicVisitId } from '../helpers/visitId.js';
 export function buildVisitActions(input) {
-    const { planId, resolution, patientActionId, hasVisitLevelChanges, hasDependentSnapshotWrites, claimedPatientId, visitDate, visitType, chiefComplaint, painLevel, } = input;
+    const { planId, resolution, patientActionId, hasVisitLevelChanges, hasDependentSnapshotWrites, claimedPatientId, visitDate, visitType, chiefComplaint, painLevel, episodeStartVisitId, } = input;
     const actions = [];
     const deterministicVisitId = buildDeterministicVisitId(claimedPatientId, visitDate);
     // Determine action type based on resolution status
@@ -79,6 +79,7 @@ export function buildVisitActions(input) {
                 visitType,
                 chiefComplaint,
                 painLevel,
+                episodeStartVisitId,
             }),
             guardedFields: ['visit_id', 'visit_date'],
         } : { intendedChanges: {}, guardedFields: [] },
@@ -126,6 +127,10 @@ function buildVisitIntendedChanges(input) {
         input.painLevel !== null &&
         String(input.painLevel) !== '') {
         intendedChanges.painLevel = input.painLevel;
+    }
+    if (typeof input.episodeStartVisitId === 'string' &&
+        input.episodeStartVisitId.trim()) {
+        intendedChanges.episodeStartVisit = input.episodeStartVisitId.trim();
     }
     return intendedChanges;
 }

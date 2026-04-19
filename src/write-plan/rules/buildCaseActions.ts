@@ -46,6 +46,7 @@ export interface BuildCaseActionsInput {
   snapshotActionIds: string[];
   hasCaseContent: boolean;
   claimedPatientId?: string | undefined;
+  caseIntendedChangesByTooth?: Record<string, Record<string, unknown>>;
 }
 
 export function buildCaseActions(
@@ -60,6 +61,7 @@ export function buildCaseActions(
     snapshotActionIds,
     hasCaseContent,
     claimedPatientId,
+    caseIntendedChangesByTooth,
   } = input;
 
   const actions: WriteAction[] = [];
@@ -98,6 +100,9 @@ export function buildCaseActions(
       hasCaseContent,
       target: caseTarget,
       primaryActionId: primaryAction?.actionId,
+      intendedChanges: caseTarget.toothNumber
+        ? caseIntendedChangesByTooth?.[caseTarget.toothNumber]
+        : undefined,
     });
 
     if (synthesisAction) {
@@ -212,6 +217,7 @@ function buildCaseSynthesisAction(input: {
   hasCaseContent: boolean;
   target: CaseResolutionTarget;
   primaryActionId?: string | undefined;
+  intendedChanges?: Record<string, unknown> | undefined;
 }): WriteAction | null {
   const {
     planId,
@@ -221,6 +227,7 @@ function buildCaseSynthesisAction(input: {
     hasCaseContent,
     target,
     primaryActionId,
+    intendedChanges,
   } = input;
 
   if (
@@ -251,7 +258,7 @@ function buildCaseSynthesisAction(input: {
       sourceResolutionPath: 'case_synthesis_update',
     },
     payloadIntent: {
-      intendedChanges: {},
+      intendedChanges: intendedChanges ? { ...intendedChanges } : {},
       guardedFields: ['case_id'],
       omittedFieldsByRule: ['date_created', 'case_id'],
     },

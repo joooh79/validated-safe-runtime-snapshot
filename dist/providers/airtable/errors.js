@@ -14,6 +14,18 @@ export function getErrorMessage(error) {
     if ('reason' in error) {
         return error.reason;
     }
+    if (error.type === 'invalid_mapped_value') {
+        return `Invalid mapped value for ${error.field}: expected ${error.expectedType}`;
+    }
+    if (error.type === 'missing_option_mapping') {
+        return `Missing option mapping for ${error.field}=${error.value} in ${error.table}`;
+    }
+    if (error.type === 'missing_field_mapping') {
+        return `Missing field mapping for ${error.field} in ${error.table}`;
+    }
+    if (error.type === 'missing_table_mapping') {
+        return `Missing table mapping for ${error.entityType}`;
+    }
     return 'Unknown adapter error';
 }
 export function canonConfirmRequiredError(field, table, reason) {

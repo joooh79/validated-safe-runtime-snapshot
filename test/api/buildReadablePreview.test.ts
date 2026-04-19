@@ -258,6 +258,7 @@ test('buildReadablePreview surfaces new case milestone and post-delivery follow-
         payloadIntent: {
           intendedChanges: {
             visitType: 'follow up',
+            episodeStartVisit: 'VISIT-916872-20221013',
           },
           guardedFields: [],
         },
@@ -267,6 +268,33 @@ test('buildReadablePreview surfaces new case milestone and post-delivery follow-
           duplicateSafe: false,
           replayEligibleIfFailed: true,
           highRiskIdentityAction: true,
+        },
+        previewVisible: true,
+      },
+      {
+        actionId: 'action_create_post_delivery_follow_up',
+        actionOrder: 7,
+        actionType: 'create_post_delivery_follow_up',
+        entityType: 'follow_up',
+        targetMode: 'create_new',
+        target: {
+          patientId: '916872',
+          visitId: 'VISIT-916872-20221019',
+          caseId: 'VISIT-916872-20221013',
+          toothNumber: '14',
+        },
+        payloadIntent: {
+          intendedChanges: {
+            followUpDate: '2022-11-16',
+            followUpResult: 'not checked',
+          },
+          guardedFields: ['relationship_source_patient_identity', 'relationship_source_visit_identity'],
+        },
+        dependsOnActionIds: ['action_attach_patient', 'action_create_visit'],
+        blockers: [],
+        safety: {
+          duplicateSafe: false,
+          replayEligibleIfFailed: true,
         },
         previewVisible: true,
       },
@@ -315,6 +343,14 @@ test('buildReadablePreview surfaces new case milestone and post-delivery follow-
   const readablePreview = buildReadablePreview(preparedRequest, preview, plan);
 
   assert.equal(
+    readablePreview.visit_summary.representative_fields.some(
+      (field) =>
+        field.field === 'Episode start visit' &&
+        field.value === 'VISIT-916872-20221013',
+    ),
+    true,
+  );
+  assert.equal(
     readablePreview.case_summary.representative_fields.some(
       (field) =>
         field.field === 'Final prosthesis plan date' && field.value === '2022-10-19',
@@ -326,6 +362,12 @@ test('buildReadablePreview surfaces new case milestone and post-delivery follow-
       (field) =>
         field.field === 'Latest post-delivery follow-up result' &&
         field.value === 'not checked',
+    ),
+    true,
+  );
+  assert.equal(
+    readablePreview.case_summary.details?.includes(
+      'Post-delivery follow-up row: tooth 14 / 2022-11-16 / not checked',
     ),
     true,
   );

@@ -19,6 +19,7 @@ import { mapVisitAction } from './buildPayload/mapVisitAction.js';
 import { mapCaseAction } from './buildPayload/mapCaseAction.js';
 import { mapLinkAction } from './buildPayload/mapLinkAction.js';
 import { mapSnapshotAction } from './buildPayload/mapSnapshotAction.js';
+import { mapFollowUpAction } from './buildPayload/mapFollowUpAction.js';
 import { getUnsupportedActionError } from './buildPayload/handleUnsupportedAction.js';
 import { createDefaultMappingRegistry } from './mappingRegistry.js';
 import { getErrorMessage } from './errors.js';
@@ -111,6 +112,14 @@ export function createAirtableProvider(config, requestExecutor) {
                 }
                 else if (action.entityType === 'link') {
                     mapResult = mapLinkAction({
+                        action,
+                        registry,
+                        resolvedRefs: ctx.resolvedRefs,
+                        requireRuntimeRefs: true,
+                    });
+                }
+                else if (action.entityType === 'follow_up') {
+                    mapResult = mapFollowUpAction({
                         action,
                         registry,
                         resolvedRefs: ctx.resolvedRefs,
@@ -336,6 +345,14 @@ function getActionMappingError(action, registry, allowAbstractSameDateSnapshotUp
     }
     if (action.entityType === 'link') {
         const mapResult = mapLinkAction({
+            action,
+            registry,
+            requireRuntimeRefs: false,
+        });
+        return mapResult.success ? null : mapResult.error;
+    }
+    if (action.entityType === 'follow_up') {
+        const mapResult = mapFollowUpAction({
             action,
             registry,
             requireRuntimeRefs: false,

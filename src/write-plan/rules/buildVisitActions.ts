@@ -28,6 +28,7 @@ export interface BuildVisitActionsInput {
   visitType?: string | undefined;
   chiefComplaint?: string | undefined;
   painLevel?: number | string | null | undefined;
+  episodeStartVisitId?: string | undefined;
 }
 
 export function buildVisitActions(
@@ -44,6 +45,7 @@ export function buildVisitActions(
     visitType,
     chiefComplaint,
     painLevel,
+    episodeStartVisitId,
   } = input;
 
   const actions: WriteAction[] = [];
@@ -121,6 +123,7 @@ export function buildVisitActions(
         visitType,
         chiefComplaint,
         painLevel,
+        episodeStartVisitId,
       }),
       guardedFields: ['visit_id', 'visit_date'],
     } : { intendedChanges: {}, guardedFields: [] },
@@ -148,6 +151,7 @@ function buildVisitIntendedChanges(input: {
   visitType?: string | undefined;
   chiefComplaint?: string | undefined;
   painLevel?: number | string | null | undefined;
+  episodeStartVisitId?: string | undefined;
 }): Record<string, unknown> {
   if (
     input.actionType !== 'create_visit' &&
@@ -196,6 +200,13 @@ function buildVisitIntendedChanges(input: {
     String(input.painLevel) !== ''
   ) {
     intendedChanges.painLevel = input.painLevel;
+  }
+
+  if (
+    typeof input.episodeStartVisitId === 'string' &&
+    input.episodeStartVisitId.trim()
+  ) {
+    intendedChanges.episodeStartVisit = input.episodeStartVisitId.trim();
   }
 
   return intendedChanges;

@@ -586,3 +586,228 @@ test('new patient workflow still blocks on duplicate conflict when an existing p
   assert.equal(response.plan?.readiness, 'blocked');
   assert(!response.plan?.actions.some((action) => action.actionType === 'create_patient'));
 });
+
+test('continue_case execute no longer skips update_case_latest_synthesis or link_visit_to_case', async () => {
+  const response = await orchestrateRequest({
+    normalizedContract: {
+      requestId: 'req_916872_20221019_14_continue_mock_fix',
+      workflowIntent: 'existing_patient_new_visit',
+      continuityIntent: 'continue_case',
+      patientClues: {
+        patientId: '916872',
+        existingPatientClaim: true,
+      },
+      visitContext: {
+        visitDate: '2022-10-19',
+        visitType: 'continue case',
+        chiefComplaint: 'follow-up review after delivery',
+        painLevel: 0,
+      },
+      findingsContext: {
+        toothItems: [
+          {
+            toothNumber: '14',
+            branches: [
+              {
+                branch: 'PRE',
+                payload: {
+                  Symptom: ['none'],
+                },
+              },
+              {
+                branch: 'RAD',
+                payload: {
+                  'Radiograph type': 'bitewing',
+                },
+              },
+              {
+                branch: 'OP',
+                payload: {
+                  'Crack confirmed': 'none',
+                },
+              },
+              {
+                branch: 'DX',
+                payload: {
+                  'Structural diagnosis': ['intact tooth'],
+                },
+              },
+              {
+                branch: 'PLAN',
+                payload: {
+                  'Restoration design': 'crown',
+                },
+              },
+              {
+                branch: 'DR',
+                payload: {
+                  'Decision factor': ['occlusion'],
+                  latestSummary: 'delivery check complete',
+                },
+              },
+            ],
+          },
+        ],
+        findingsPresent: {
+          pre_op: true,
+          radiographic: true,
+          operative: true,
+          diagnosis: true,
+          treatment_plan: true,
+          doctor_reasoning: true,
+        },
+      },
+      warnings: [],
+    },
+    lookupBundle: {
+      patientLookup: {
+        found: true,
+        patientId: '916872',
+        recordId: 'rec_patient_001',
+      },
+      sameDateVisitLookup: {
+        found: false,
+      },
+      caseLookups: {
+        '14': {
+          found: true,
+          caseId: 'VISIT-916872-20221013',
+        },
+      },
+    },
+    interactionInput: {
+      confirmation: {
+        confirmed: true,
+      },
+    },
+    providerConfig: {
+      kind: 'airtable',
+      mode: 'mock',
+    },
+  });
+
+  assert.equal(response.terminalStatus, 'executed');
+  assert.equal(response.plan?.readiness, 'execution_ready');
+  assert.equal(response.resolution?.caseResolution.resolvedCaseId, 'VISIT-916872-20221013');
+
+  const actionTypes = response.plan?.actions.map((action) => action.actionType) ?? [];
+  assert.notEqual(actionTypes.indexOf('create_snapshot'), -1);
+  assert.notEqual(actionTypes.indexOf('update_case_latest_synthesis'), -1);
+  assert.ok(
+    actionTypes.indexOf('create_snapshot') < actionTypes.indexOf('update_case_latest_synthesis'),
+  );
+
+  const visitAction = response.plan?.actions.find((action) => action.entityType === 'visit');
+  const linkVisitAction = response.plan?.actions.find(
+    (action) => action.actionType === 'link_visit_to_case',
+  );
+  assert.deepEqual(
+    linkVisitAction?.dependsOnActionIds,
+    visitAction ? [visitAction.actionId] : undefined,
+  );
+
+  const updateCaseResult = response.executionResult?.actionResults.find(
+    (action: { actionType: string }) => action.actionType === 'update_case_latest_synthesis',
+  );
+  const linkVisitResult = response.executionResult?.actionResults.find(
+    (action: { actionType: string }) => action.actionType === 'link_visit_to_case',
+  );
+  assert.equal(updateCaseResult?.status, 'success');
+  assert.equal(linkVisitResult?.status, 'success');
+});
+
+test('follow-up preview exposes a post-delivery follow-up create action and safe episode-start visit helper write', async () => {
+  const response = await orchestrateRequest({
+    normalizedContract: {
+      requestId: 'req_916872_20221116_14_follow_up_preview',
+      workflowIntent: 'existing_patient_new_visit',
+      continuityIntent: 'continue_case',
+      patientClues: {
+        patientId: '916872',
+        existingPatientClaim: true,
+      },
+      visitContext: {
+        visitDate: '2022-11-16',
+        visitType: 'follow up',
+        chiefComplaint: 'post-delivery check',
+        painLevel: 0,
+      },
+      findingsContext: {
+        toothItems: [
+          {
+            toothNumber: '14',
+            branches: [
+              {
+                branch: 'OP',
+                payload: {
+                  followUpDate: '2022-11-16',
+                  followUpResult: 'no issue',
+                  issueSummary: 'none reported',
+                  followUpNotes: 'occlusion stable',
+                },
+              },
+            ],
+          },
+        ],
+        findingsPresent: {
+          operative: true,
+        },
+      },
+      warnings: [],
+    },
+    lookupBundle: {
+      patientLookup: {
+        found: true,
+        patientId: '916872',
+        recordId: 'rec_patient_001',
+      },
+      sameDateVisitLookup: {
+        found: false,
+      },
+      caseLookups: {
+        '14': {
+          found: true,
+          caseId: 'VISIT-916872-20221013',
+        },
+      },
+    },
+    providerConfig: {
+      kind: 'airtable',
+      mode: 'dryrun',
+    },
+  });
+
+  assert.equal(response.terminalStatus, 'preview_pending_confirmation');
+  assert.equal(response.plan?.readiness, 'execution_ready');
+
+  const visitAction = response.plan?.actions.find((action) => action.entityType === 'visit');
+  assert.equal(
+    visitAction?.payloadIntent?.intendedChanges.episodeStartVisit,
+    'VISIT-916872-20221013',
+  );
+
+  const followUpAction = response.plan?.actions.find(
+    (action) => action.actionType === 'create_post_delivery_follow_up',
+  );
+  assert.equal(followUpAction?.target.toothNumber, '14');
+  assert.deepEqual(followUpAction?.payloadIntent?.intendedChanges, {
+    followUpDate: '2022-11-16',
+    followUpResult: 'no issue',
+    issueSummary: 'none reported',
+    followUpNotes: 'occlusion stable',
+  });
+  assert.equal(
+    response.readablePreview?.visit_summary.representative_fields.some(
+      (field) =>
+        field.field === 'Episode start visit' &&
+        field.value === 'VISIT-916872-20221013',
+    ),
+    true,
+  );
+  assert.equal(
+    response.readablePreview?.case_summary.details?.includes(
+      'Post-delivery follow-up row: tooth 14 / 2022-11-16 / no issue',
+    ),
+    true,
+  );
+});

@@ -99,6 +99,7 @@ export { mapVisitAction } from './buildPayload/mapVisitAction.js';
 export { mapCaseAction } from './buildPayload/mapCaseAction.js';
 export { mapLinkAction } from './buildPayload/mapLinkAction.js';
 export { mapSnapshotAction } from './buildPayload/mapSnapshotAction.js';
+export { mapFollowUpAction } from './buildPayload/mapFollowUpAction.js';
 export { getUnsupportedActionError } from './buildPayload/handleUnsupportedAction.js';
 
 // Value normalization helpers (advanced usage)

@@ -27,7 +27,7 @@ function getExistingCaseTargetId(caseTarget) {
     return caseTarget.resolvedCaseRecordRef || caseTarget.resolvedCaseId;
 }
 export function buildCaseActions(input) {
-    const { planId, patientResolution, resolution, patientActionId, visitActionId, snapshotActionIds, hasCaseContent, claimedPatientId, } = input;
+    const { planId, patientResolution, resolution, patientActionId, visitActionId, snapshotActionIds, hasCaseContent, claimedPatientId, caseIntendedChangesByTooth, } = input;
     const actions = [];
     const caseTargets = getCaseTargets(resolution);
     if (resolution.status === 'none' ||
@@ -56,6 +56,9 @@ export function buildCaseActions(input) {
             hasCaseContent,
             target: caseTarget,
             primaryActionId: primaryAction?.actionId,
+            intendedChanges: caseTarget.toothNumber
+                ? caseIntendedChangesByTooth?.[caseTarget.toothNumber]
+                : undefined,
         });
         if (synthesisAction) {
             actions.push(synthesisAction);
@@ -138,7 +141,7 @@ function buildPrimaryCaseAction(input) {
     };
 }
 function buildCaseSynthesisAction(input) {
-    const { planId, patientId, visitActionId, snapshotActionIds, hasCaseContent, target, primaryActionId, } = input;
+    const { planId, patientId, visitActionId, snapshotActionIds, hasCaseContent, target, primaryActionId, intendedChanges, } = input;
     if (!hasCaseContent ||
         target.status !== 'continue_case' ||
         !getExistingCaseTargetId(target)) {
@@ -159,7 +162,7 @@ function buildCaseSynthesisAction(input) {
             sourceResolutionPath: 'case_synthesis_update',
         },
         payloadIntent: {
-            intendedChanges: {},
+            intendedChanges: intendedChanges ? { ...intendedChanges } : {},
             guardedFields: ['case_id'],
             omittedFieldsByRule: ['date_created', 'case_id'],
         },

@@ -19,6 +19,9 @@ const CASE_FIELD_LABELS: Record<string, string> = {
   latestPostDeliveryFollowUpDate: 'Latest post-delivery follow-up date',
   latestPostDeliveryFollowUpResult: 'Latest post-delivery follow-up result',
 };
+const VISIT_FIELD_LABELS: Record<string, string> = {
+  episodeStartVisit: 'Episode start visit',
+};
 
 const SNAPSHOT_FIELD_LABELS: Record<
   SnapshotBranch,
@@ -95,7 +98,7 @@ export function buildReadablePreview(
       .filter(Boolean)
       .join(' / '),
     patient_summary: buildPatientSummary(request, preview),
-    visit_summary: buildVisitSummary(request, preview),
+    visit_summary: buildVisitSummary(request, preview, plan),
     case_summary: buildCaseSummary(request, preview, plan),
     findings,
     warnings: [...preview.warnings],
@@ -141,9 +144,11 @@ function buildPatientSummary(
 function buildVisitSummary(
   request: PreparedApiRequest,
   preview: PreviewModel,
+  plan: WritePlan,
 ): ApiReadableSummaryBlock {
   const representative_fields: ApiRepresentativeFieldView[] = [];
   const { visitContext } = request.contract;
+  const visitIntendedChanges = collectVisitIntendedChanges(plan.actions);
 
   if (visitContext.visitDate) {
     representative_fields.push({
@@ -191,6 +196,16 @@ function buildVisitSummary(
     });
   }
 
+  for (const [fieldKey, fieldLabel] of Object.entries(VISIT_FIELD_LABELS)) {
+    const value = visitIntendedChanges[fieldKey];
+    if (typeof value === 'string' && value.trim()) {
+      representative_fields.push({
+        field: fieldLabel,
+        value: value.trim(),
+      });
+    }
+  }
+
   return {
     label: preview.visitBlock.label,
     value: preview.visitBlock.value,
@@ -210,6 +225,7 @@ function buildCaseSummary(
   const details = [
     ...(preview.caseBlock.details ?? []),
     ...buildCaseCandidateDetails(caseResolution),
+    ...buildFollowUpDetails(plan.actions),
   ];
 
   if (request.contract.continuityIntent && request.contract.continuityIntent !== 'none') {
@@ -296,6 +312,23 @@ function collectCaseIntendedChanges(
     }, {});
 }
 
+function collectVisitIntendedChanges(
+  actions: WriteAction[],
+): Record<string, unknown> {
+  return actions
+    .filter((action) => action.entityType === 'visit')
+    .reduce<Record<string, unknown>>((merged, action) => {
+      const intended = action.payloadIntent?.intendedChanges;
+      if (!intended) {
+        return merged;
+      }
+      return {
+        ...merged,
+        ...intended,
+      };
+    }, {});
+}
+
 function buildCaseCandidateDetails(
   caseResolution: WritePlan['resolution']['caseResolution'],
 ): string[] {
@@ -318,6 +351,23 @@ function buildCaseCandidateDetails(
 
     return `Candidate ${index + 1}: ${parts.join(' / ')}`;
   });
+}
+
+function buildFollowUpDetails(
+  actions: WriteAction[],
+): string[] {
+  return actions
+    .filter((action) => action.actionType === 'create_post_delivery_follow_up')
+    .map((action) => {
+      const intended = action.payloadIntent?.intendedChanges ?? {};
+      const parts = [
+        action.target.toothNumber ? `tooth ${action.target.toothNumber}` : '',
+        typeof intended.followUpDate === 'string' ? intended.followUpDate : '',
+        typeof intended.followUpResult === 'string' ? intended.followUpResult : '',
+      ].filter(Boolean);
+
+      return `Post-delivery follow-up row: ${parts.join(' / ')}`;
+    });
 }
 
 function buildFindingSummaries(

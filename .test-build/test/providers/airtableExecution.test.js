@@ -186,6 +186,49 @@ test('create_visit accepts exact Visit type values continue case and follow up',
         assert.equal(requests[0]?.fields['Visit type'], visitType);
     }
 });
+test('create_visit writes Episode start visit when a safe source visit id is provided', async () => {
+    const { provider, requests } = createCapturingProvider();
+    const action = {
+        actionId: 'action_create_visit_with_episode_start',
+        actionOrder: 2,
+        actionType: 'create_visit',
+        entityType: 'visit',
+        targetMode: 'create_new',
+        target: {
+            patientId: '916872',
+            visitId: 'VISIT-916872-20221019',
+            sourceResolutionPath: 'create_new_visit',
+        },
+        payloadIntent: {
+            intendedChanges: {
+                patientId: '916872',
+                visitId: 'VISIT-916872-20221019',
+                date: '2022-10-19',
+                visitType: 'continue case',
+                episodeStartVisit: 'VISIT-916872-20221013',
+            },
+            guardedFields: ['visit_id', 'visit_date'],
+        },
+        dependsOnActionIds: ['action_create_patient'],
+        blockers: [],
+        safety: {
+            duplicateSafe: false,
+            replayEligibleIfFailed: true,
+            highRiskIdentityAction: true,
+        },
+        previewVisible: true,
+    };
+    const result = await provider.executeAction(action, {
+        requestId: 'req_create_visit_with_episode_start',
+        planId: 'plan_create_visit_with_episode_start',
+        resolvedRefs: {
+            action_create_patient: 'rec_patient_001',
+        },
+    });
+    assert.equal(result.status, 'success');
+    assert.equal(requests.length, 1);
+    assert.deepEqual(requests[0]?.fields['Episode start visit'], ['VISIT-916872-20221013']);
+});
 test('create_case and create_snapshot use runtime linked record refs and normalize multi-select snapshot fields', async () => {
     const { provider, requests } = createCapturingProvider();
     const createCaseAction = {
@@ -438,6 +481,58 @@ test('update_case_latest_synthesis rejects non-schema post-delivery follow-up re
     assert.equal(result.status, 'failed');
     assert.equal(requests.length, 0);
     assert.match(result.errorMessage ?? '', /Latest post-delivery follow-up result/);
+});
+test('create_post_delivery_follow_up maps patient, visit, case, and follow-up content into a new row', async () => {
+    const { provider, requests } = createCapturingProvider();
+    const action = {
+        actionId: 'action_create_post_delivery_follow_up',
+        actionOrder: 7,
+        actionType: 'create_post_delivery_follow_up',
+        entityType: 'follow_up',
+        targetMode: 'create_new',
+        target: {
+            patientId: '916872',
+            visitId: 'VISIT-916872-20221019',
+            caseId: 'VISIT-916872-20221013',
+            toothNumber: '14',
+            sourceResolutionPath: 'post_delivery_follow_up',
+        },
+        payloadIntent: {
+            intendedChanges: {
+                followUpDate: '2022-11-16',
+                followUpResult: 'no issue',
+                issueSummary: 'none reported',
+                followUpNotes: 'healing within normal range',
+            },
+            guardedFields: ['relationship_source_patient_identity', 'relationship_source_visit_identity'],
+        },
+        dependsOnActionIds: ['action_attach_patient', 'action_create_visit'],
+        blockers: [],
+        safety: {
+            duplicateSafe: false,
+            replayEligibleIfFailed: true,
+        },
+        previewVisible: true,
+    };
+    const result = await provider.executeAction(action, {
+        requestId: 'req_create_post_delivery_follow_up',
+        planId: 'plan_create_post_delivery_follow_up',
+        resolvedRefs: {
+            action_attach_patient: 'rec_patient_001',
+            action_create_visit: 'rec_visit_001',
+        },
+    });
+    assert.equal(result.status, 'success');
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0]?.type, 'create');
+    assert.deepEqual(requests[0]?.fields['Patient ID'], ['rec_patient_001']);
+    assert.deepEqual(requests[0]?.fields['Visit ID'], ['rec_visit_001']);
+    assert.deepEqual(requests[0]?.fields['Case ID'], ['VISIT-916872-20221013']);
+    assert.equal(requests[0]?.fields['Tooth number'], '14');
+    assert.equal(requests[0]?.fields['Follow-up date'], '2022-11-16');
+    assert.equal(requests[0]?.fields['Follow-up result'], 'no issue');
+    assert.equal(requests[0]?.fields['Issue summary'], 'none reported');
+    assert.equal(requests[0]?.fields['Follow-up notes'], 'healing within normal range');
 });
 test('default mapping registry recognizes the new Cases and Post-delivery Follow-ups schema fields', () => {
     const registry = createDefaultMappingRegistry();

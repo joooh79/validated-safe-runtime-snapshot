@@ -7,6 +7,7 @@ export async function buildPlan(request, resolution) {
         hasVisitLevelChanges: hasVisitLevelChanges(request),
         patientClues: request.contract.patientClues,
         visitContext: request.contract.visitContext,
+        toothItems: request.contract.findingsContext.toothItems,
     };
     if (request.contract.inputHash) {
         input.inputHash = request.contract.inputHash;
