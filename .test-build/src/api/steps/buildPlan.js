@@ -9,6 +9,9 @@ export async function buildPlan(request, resolution) {
         visitContext: request.contract.visitContext,
         toothItems: request.contract.findingsContext.toothItems,
     };
+    if (request.contract.caseUpdates !== undefined) {
+        input.caseUpdates = request.contract.caseUpdates;
+    }
     if (request.contract.inputHash) {
         input.inputHash = request.contract.inputHash;
     }

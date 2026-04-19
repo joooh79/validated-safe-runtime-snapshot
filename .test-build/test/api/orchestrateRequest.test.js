@@ -731,3 +731,174 @@ test('follow-up preview exposes a post-delivery follow-up create action and safe
         field.value === 'VISIT-916872-20221013'), true);
     assert.equal(response.readablePreview?.case_summary.details?.includes('Post-delivery follow-up row: tooth 14 / 2022-11-16 / no issue'), true);
 });
+test('top-level caseUpdates are preserved into continue-case preview and execution intent', async () => {
+    const response = await orchestrateRequest({
+        normalizedContract: {
+            requestId: 'req_916872_20221026_14_case_updates',
+            workflowIntent: 'existing_patient_new_visit',
+            continuityIntent: 'continue_case',
+            patientClues: {
+                patientId: '916872',
+                existingPatientClaim: true,
+            },
+            visitContext: {
+                visitDate: '2022-10-26',
+                visitType: 'recall',
+                chiefComplaint: '14번 e.max crown final delivery',
+                painLevel: 0,
+            },
+            findingsContext: {
+                toothItems: [
+                    {
+                        toothNumber: '14',
+                        branches: [
+                            {
+                                branch: 'DR',
+                                payload: {
+                                    decisionFactors: ['N/A'],
+                                    reasoningNotes: 'e.max crown final delivery 완료. 장착 후 이상 없음 확인. 14번 치아 케이스 종료.',
+                                },
+                            },
+                        ],
+                    },
+                ],
+                findingsPresent: {
+                    doctor_reasoning: true,
+                },
+            },
+            caseUpdates: {
+                episodeStatus: 'closed',
+                finalProsthesisPlanDate: '2022-10-19',
+                finalPrepAndScanDate: '2022-10-19',
+                finalProsthesisDeliveryDate: '2022-10-26',
+            },
+            warnings: [],
+        },
+        lookupBundle: {
+            patientLookup: {
+                found: true,
+                patientId: '916872',
+                recordId: 'rec_patient_001',
+            },
+            sameDateVisitLookup: {
+                found: false,
+            },
+            caseLookups: {
+                '14': {
+                    found: true,
+                    caseId: 'CASE-916872-14-20221013',
+                },
+            },
+        },
+        interactionInput: {
+            confirmation: {
+                confirmed: true,
+            },
+        },
+        providerConfig: {
+            kind: 'airtable',
+            mode: 'mock',
+        },
+    });
+    assert.equal(response.terminalStatus, 'executed');
+    assert.equal(response.plan?.readiness, 'execution_ready');
+    const caseAction = response.plan?.actions.find((action) => action.actionType === 'update_case_latest_synthesis');
+    assert.deepEqual(caseAction?.payloadIntent?.intendedChanges, {
+        episodeStatus: 'closed',
+        finalProsthesisPlanDate: '2022-10-19',
+        finalPrepAndScanDate: '2022-10-19',
+        finalProsthesisDeliveryDate: '2022-10-26',
+    });
+    assert.equal(response.readablePreview?.case_summary.representative_fields.some((field) => field.field === 'Episode status' && field.value === 'closed'), true);
+    assert.equal(response.readablePreview?.case_summary.representative_fields.some((field) => field.field === 'Final prosthesis delivery date' && field.value === '2022-10-26'), true);
+    const caseResult = response.executionResult?.actionResults.find((action) => action.actionType === 'update_case_latest_synthesis');
+    assert.equal(caseResult?.status, 'success');
+});
+test('existing patient demographics can be updated without a visit workflow', async () => {
+    const response = await orchestrateRequest({
+        normalizedContract: {
+            requestId: 'req_patient_only_update_196872',
+            workflowIntent: 'unknown',
+            continuityIntent: 'none',
+            patientClues: {
+                patientId: '196872',
+                birthYear: '1966',
+                genderHint: 'Female',
+            },
+            visitContext: {},
+            findingsContext: {
+                toothItems: [],
+            },
+            warnings: [],
+        },
+        lookupBundle: {
+            patientLookup: {
+                found: true,
+                patientId: '196872',
+                recordId: 'rec_patient_196872',
+            },
+            sameDateVisitLookup: {
+                found: false,
+            },
+            caseLookups: {},
+        },
+        providerConfig: {
+            kind: 'airtable',
+            mode: 'mock',
+        },
+    });
+    assert.equal(response.terminalStatus, 'preview_pending_confirmation');
+    assert.equal(response.plan?.readiness, 'execution_ready');
+    assert.equal(response.resolution?.visit.status, 'no_visit_needed');
+    assert.equal(response.resolution?.caseResolution.status, 'none');
+    const patientAction = response.plan?.actions.find((action) => action.entityType === 'patient');
+    assert.equal(patientAction?.actionType, 'update_patient');
+    assert.deepEqual(patientAction?.payloadIntent?.intendedChanges, {
+        birthYear: '1966',
+        gender: 'Female',
+    });
+    assert.equal(response.readablePreview?.patient_summary.representative_fields.some((field) => field.field === 'Birth year' && field.value === '1966'), true);
+    assert.equal(response.readablePreview?.patient_summary.representative_fields.some((field) => field.field === 'Gender hint' && field.value === 'Female'), true);
+    assert.equal(response.preview?.visitBlock.value, 'No visit action needed');
+    assert.equal(response.preview?.warnings.some((warning) => warning.includes('workflowIntent: Workflow intent could not be determined')), false);
+    const executed = await orchestrateRequest({
+        normalizedContract: {
+            requestId: 'req_patient_only_update_196872',
+            workflowIntent: 'unknown',
+            continuityIntent: 'none',
+            patientClues: {
+                patientId: '196872',
+                birthYear: '1966',
+                genderHint: 'Female',
+            },
+            visitContext: {},
+            findingsContext: {
+                toothItems: [],
+            },
+            warnings: [],
+        },
+        lookupBundle: {
+            patientLookup: {
+                found: true,
+                patientId: '196872',
+                recordId: 'rec_patient_196872',
+            },
+            sameDateVisitLookup: {
+                found: false,
+            },
+            caseLookups: {},
+        },
+        interactionInput: {
+            confirmation: {
+                confirmed: true,
+            },
+        },
+        providerConfig: {
+            kind: 'airtable',
+            mode: 'mock',
+        },
+    });
+    assert.equal(executed.terminalStatus, 'executed');
+    const patientResult = executed.executionResult?.actionResults.find((action) => action.actionType === 'update_patient');
+    assert.equal(patientResult?.status, 'success');
+});

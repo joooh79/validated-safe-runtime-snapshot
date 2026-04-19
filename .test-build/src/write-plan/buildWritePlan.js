@@ -45,7 +45,7 @@ import { extractContinuationPayload } from './rules/extractContinuationPayload.j
  * This is the main entry point for the write-plan engine.
  */
 export async function buildWritePlan(input) {
-    const { resolution, snapshotBranchIntents, inputHash, snapshotLookups, hasVisitLevelChanges, patientClues, visitContext, toothItems, } = input;
+    const { resolution, snapshotBranchIntents, inputHash, snapshotLookups, hasVisitLevelChanges, patientClues, visitContext, toothItems, caseUpdates, } = input;
     // Generate plan ID (deterministic based on request)
     const planId = `plan_${input.resolution.requestId.slice(0, 8)}`;
     const branchIntents = snapshotBranchIntents ||
@@ -53,17 +53,24 @@ export async function buildWritePlan(input) {
     const plannedVisitId = buildDeterministicVisitId(patientClues?.patientId, visitContext?.visitDate);
     const hasSnapshotContent = branchIntents.some((intent) => intent.hasContent);
     const hasSnapshotWrites = branchIntents.some((intent) => snapshotBranchIntentProducesWrite(intent, snapshotLookups));
-    const continuationPayload = extractContinuationPayload(toothItems);
+    const continuationPayload = extractContinuationPayload({
+        toothItems,
+        ...(caseUpdates !== undefined ? { caseUpdates } : {}),
+    });
     const episodeStartVisitId = resolveSafeEpisodeStartVisitId(resolution);
+    const hasCaseIntendedChanges = Object.keys(continuationPayload.caseIntendedChangesByTooth).length > 0;
+    const hasPatientContent = hasPatientUpdateContent(patientClues);
     // Step 1: Build patient actions
     const patientActions = buildPatientActions({
         planId,
         resolution: resolution.patient,
-        hasPatientContent: false,
+        hasPatientContent,
         claimedPatientId: patientClues?.patientId,
         birthYear: patientClues?.birthYear,
         genderHint: patientClues?.genderHint,
-        firstVisitDate: visitContext?.visitDate,
+        firstVisitDate: resolution.patient.status === 'create_new_patient'
+            ? visitContext?.visitDate
+            : undefined,
     });
     if (patientActions.length === 0) {
         throw new Error('Patient actions must not be empty');
@@ -94,7 +101,8 @@ export async function buildWritePlan(input) {
         patientActionId: patientActions[0].actionId,
         visitActionId: visitActions[0].actionId,
         snapshotActionIds: [], // Will be filled after snapshot actions
-        hasCaseContent: hasSnapshotContent && resolution.caseResolution.status !== 'none',
+        hasCaseContent: (hasSnapshotContent || hasCaseIntendedChanges) &&
+            resolution.caseResolution.status !== 'none',
         claimedPatientId: patientClues?.patientId,
         caseIntendedChangesByTooth: continuationPayload.caseIntendedChangesByTooth,
     });
@@ -118,7 +126,8 @@ export async function buildWritePlan(input) {
         patientActionId: patientActions[0].actionId,
         visitActionId: visitActions[0].actionId,
         snapshotActionIds,
-        hasCaseContent: hasSnapshotContent && resolution.caseResolution.status !== 'none',
+        hasCaseContent: (hasSnapshotContent || hasCaseIntendedChanges) &&
+            resolution.caseResolution.status !== 'none',
         claimedPatientId: patientClues?.patientId,
         caseIntendedChangesByTooth: continuationPayload.caseIntendedChangesByTooth,
     });
@@ -282,6 +291,15 @@ function compareIndexedActions(left, right) {
         return left.action.actionOrder - right.action.actionOrder;
     }
     return left.index - right.index;
+}
+function hasPatientUpdateContent(patientClues) {
+    if (!patientClues) {
+        return false;
+    }
+    return ((patientClues.birthYear !== undefined &&
+        String(patientClues.birthYear) !== '') ||
+        (typeof patientClues.genderHint === 'string' &&
+            patientClues.genderHint.trim().length > 0));
 }
 /**
  * Infer snapshot branch intents from resolution state

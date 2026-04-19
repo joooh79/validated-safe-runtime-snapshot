@@ -68,6 +68,7 @@ const SNAPSHOT_INPUT_FIELD_LABELS: Record<SnapshotBranch, Record<string, string>
 };
 
 const CASE_INPUT_FIELD_LABELS: Record<string, string> = {
+  episodeStatus: 'Episode status',
   finalProsthesisPlanDate: 'Final prosthesis plan date',
   finalPrepAndScanDate: 'Final prep & scan date',
   finalProsthesisDeliveryDate: 'Final prosthesis delivery date',

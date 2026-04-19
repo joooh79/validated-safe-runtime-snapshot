@@ -18,6 +18,7 @@ export interface VisitResolution {
   status:
     | 'create_new_visit'
     | 'update_existing_visit_same_date'
+    | 'no_visit_needed'
     | 'correction_needed_same_date_conflict'
     | 'hard_stop_same_date_keep_new_visit_claim'
     | 'unresolved_visit_ambiguity';

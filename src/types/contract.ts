@@ -42,6 +42,8 @@ export interface FindingsContext {
   findingsPresent?: Record<string, boolean>;
 }
 
+export type CaseUpdatesInput = Record<string, unknown> | Array<Record<string, unknown>>;
+
 export interface NormalizedContract {
   requestId: string;
   inputHash?: string;
@@ -50,5 +52,6 @@ export interface NormalizedContract {
   patientClues: PatientClues;
   visitContext: VisitContext;
   findingsContext: FindingsContext;
+  caseUpdates?: CaseUpdatesInput;
   warnings: string[];
 }

@@ -39,6 +39,8 @@ function summarizeVisitAction(visit) {
             return 'Create new visit';
         case 'update_existing_visit_same_date':
             return `Update existing visit from same date`;
+        case 'no_visit_needed':
+            return 'No visit action needed';
         case 'correction_needed_same_date_conflict':
             return `Same-date visit exists. Please confirm how to proceed.`;
         case 'hard_stop_same_date_keep_new_visit_claim':

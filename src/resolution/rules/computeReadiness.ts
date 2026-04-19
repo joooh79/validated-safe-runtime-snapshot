@@ -126,7 +126,8 @@ function isPatientResolutionValid(patient: PatientResolution): boolean {
 function isVisitResolutionValid(visit: VisitResolution): boolean {
   return (
     visit.status === 'create_new_visit' ||
-    visit.status === 'update_existing_visit_same_date'
+    visit.status === 'update_existing_visit_same_date' ||
+    visit.status === 'no_visit_needed'
   );
 }
 

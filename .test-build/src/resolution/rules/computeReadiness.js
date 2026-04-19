@@ -87,7 +87,8 @@ function isPatientResolutionValid(patient) {
  */
 function isVisitResolutionValid(visit) {
     return (visit.status === 'create_new_visit' ||
-        visit.status === 'update_existing_visit_same_date');
+        visit.status === 'update_existing_visit_same_date' ||
+        visit.status === 'no_visit_needed');
 }
 function hasRequiredRuntimeRefs(patient, caseResolution) {
     if (patient.status === 'resolved_existing_patient' &&

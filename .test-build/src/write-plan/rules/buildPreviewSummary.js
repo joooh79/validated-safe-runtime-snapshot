@@ -28,7 +28,7 @@ export function buildPreviewSummary(resolution, actions, warnings) {
         : 'No patient action';
     // Build visit preview
     const visitActionText = visitAction
-        ? describeVisitAction(visitAction)
+        ? describeVisitAction(visitAction, resolution)
         : 'No visit action';
     // Build case preview
     const caseActionText = caseActions.length > 0
@@ -87,13 +87,16 @@ function describePatientAction(action) {
             return 'Unknown patient action';
     }
 }
-function describeVisitAction(action) {
+function describeVisitAction(action, resolution) {
     switch (action.actionType) {
         case 'create_visit':
             return `Create new visit`;
         case 'update_visit':
             return `Update existing visit (same-date correction)`;
         case 'no_op_visit':
+            if (resolution.visit.status === 'no_visit_needed') {
+                return `No visit action needed`;
+            }
             return `No visit action (blocked or skipped)`;
         default:
             return 'Unknown visit action';

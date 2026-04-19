@@ -58,6 +58,9 @@ function summarizeVisitAction(visit: VisitResolution): string {
     case 'update_existing_visit_same_date':
       return `Update existing visit from same date`;
 
+    case 'no_visit_needed':
+      return 'No visit action needed';
+
     case 'correction_needed_same_date_conflict':
       return `Same-date visit exists. Please confirm how to proceed.`;
 

@@ -30,6 +30,7 @@ export async function normalizeRequest(
 
   applyInteractionInput(normalized, request);
   applyWorkflowClaimDefaults(normalized);
+  inferWorkflowIntent(normalized);
   normalizeFindingsPayloadKeys(normalized);
 
   const validation = isNormalizedContractValid(normalized);
@@ -159,6 +160,29 @@ function applyWorkflowClaimDefaults(
   }
 }
 
+function inferWorkflowIntent(contract: NormalizedContract): void {
+  if (contract.workflowIntent !== 'unknown') {
+    return;
+  }
+
+  const hasVisitContext =
+    hasMeaningfulValue(contract.visitContext.visitDate) ||
+    hasMeaningfulValue(contract.visitContext.targetVisitDate) ||
+    hasMeaningfulValue(contract.visitContext.targetVisitId) ||
+    hasMeaningfulValue(contract.visitContext.targetVisitClue) ||
+    hasMeaningfulValue(contract.visitContext.visitType) ||
+    hasMeaningfulValue(contract.visitContext.chiefComplaint);
+  const hasFindings = contract.findingsContext.toothItems.length > 0;
+  const hasPatientUpdateContent =
+    hasMeaningfulValue(contract.patientClues.patientId) &&
+    (hasMeaningfulValue(contract.patientClues.birthYear) ||
+      hasMeaningfulValue(contract.patientClues.genderHint));
+
+  if (!hasVisitContext && !hasFindings && hasPatientUpdateContent) {
+    contract.workflowIntent = 'patient_update';
+  }
+}
+
 function applyInteractionLookupPatch(
   lookupBundle: CurrentStateLookupBundle,
   request: ApiOrchestrationRequest,
@@ -243,6 +267,18 @@ function mergeProviderNotes(
   return `${existing}; ${next}`;
 }
 
+function hasMeaningfulValue(value: unknown): boolean {
+  if (value === null || value === undefined) {
+    return false;
+  }
+
+  if (typeof value === 'string') {
+    return value.trim().length > 0;
+  }
+
+  return true;
+}
+
 function resolveProvider(request: ApiOrchestrationRequest) {
   if (request.provider) {
     return request.provider;
@@ -298,6 +334,13 @@ function cloneContract(contract: NormalizedContract): NormalizedContract {
     patientClues: { ...contract.patientClues },
     visitContext: { ...contract.visitContext },
     findingsContext,
+    ...(contract.caseUpdates !== undefined
+      ? {
+          caseUpdates: Array.isArray(contract.caseUpdates)
+            ? contract.caseUpdates.map((item) => ({ ...item }))
+            : { ...contract.caseUpdates },
+        }
+      : {}),
     warnings: [...contract.warnings],
   };
 }

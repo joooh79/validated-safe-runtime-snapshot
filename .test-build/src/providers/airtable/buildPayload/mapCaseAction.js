@@ -140,6 +140,16 @@ function mapUpdateCaseLatestSynthesis(action, registry) {
     if (typeof intended?.latestWorkingPlan === 'string' && intended.latestWorkingPlan.trim()) {
         fields[registry.caseFields.latestWorkingPlan.fieldName] = intended.latestWorkingPlan.trim();
     }
+    const episodeStatus = maybeNormalizeSelect(intended?.episodeStatus, Object.values(registry.episodeStatusOptions), registry.caseFields.episodeStatus.fieldName);
+    if (isAdapterError(episodeStatus)) {
+        return {
+            success: false,
+            error: episodeStatus,
+        };
+    }
+    if (episodeStatus) {
+        fields[registry.caseFields.episodeStatus.fieldName] = episodeStatus;
+    }
     const finalProsthesisPlanDate = maybeNormalizeDate(intended?.finalProsthesisPlanDate);
     if (isAdapterError(finalProsthesisPlanDate)) {
         return {

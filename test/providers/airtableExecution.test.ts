@@ -111,6 +111,50 @@ test('create_patient normalizes numeric birth year and accepts Airtable gender o
   assert.equal(requests[0]?.fields['Gender'], 'Male');
 });
 
+test('update_patient writes existing patient demographics without requiring a visit action', async () => {
+  const { provider, requests } = createCapturingProvider();
+
+  const action: WriteAction = {
+    actionId: 'action_update_patient',
+    actionOrder: 1,
+    actionType: 'update_patient',
+    entityType: 'patient',
+    targetMode: 'update_existing',
+    target: {
+      patientId: 'rec_patient_196872',
+      sourceResolutionPath: 'resolved_existing_patient',
+    },
+    payloadIntent: {
+      intendedChanges: {
+        birthYear: '1966',
+        gender: 'Female',
+      },
+      guardedFields: ['patient_id', 'date_created'],
+    },
+    dependsOnActionIds: [],
+    blockers: [],
+    safety: {
+      duplicateSafe: false,
+      replayEligibleIfFailed: false,
+      highRiskIdentityAction: true,
+    },
+    previewVisible: true,
+  };
+
+  const result = await provider.executeAction(action, {
+    requestId: 'req_update_patient',
+    planId: 'plan_update_patient',
+    resolvedRefs: {},
+  });
+
+  assert.equal(result.status, 'success');
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0]?.type, 'update');
+  assert.equal(requests[0]?.recordId, 'rec_patient_196872');
+  assert.equal(requests[0]?.fields['Birth year'], 1966);
+  assert.equal(requests[0]?.fields['Gender'], 'Female');
+});
+
 test('create_visit writes linked patient refs as an array and includes the deterministic visit id', async () => {
   const { provider, requests } = createCapturingProvider();
 
@@ -457,6 +501,7 @@ test('update_case_latest_synthesis maps new case milestone and post-delivery fol
     },
     payloadIntent: {
       intendedChanges: {
+        episodeStatus: 'closed',
         latestSummary: 'follow-up after delivery',
         finalProsthesisPlanDate: '2022-10-19',
         finalPrepAndScanDate: '2022-10-26',
@@ -484,6 +529,7 @@ test('update_case_latest_synthesis maps new case milestone and post-delivery fol
   assert.equal(result.status, 'success');
   assert.equal(requests.length, 1);
   assert.equal(requests[0]?.type, 'update');
+  assert.equal(requests[0]?.fields['Episode status'], 'closed');
   assert.equal(requests[0]?.fields['Final prosthesis plan date'], '2022-10-19');
   assert.equal(requests[0]?.fields['Final prep & scan date'], '2022-10-26');
   assert.equal(requests[0]?.fields['Final prosthesis delivery date'], '2022-11-02');

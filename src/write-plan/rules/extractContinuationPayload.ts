@@ -1,6 +1,7 @@
-import type { ToothFindingsItem } from '../../types/contract.js';
+import type { CaseUpdatesInput, ToothFindingsItem } from '../../types/contract.js';
 
 const CASE_SYNTHESIS_FIELD_ALIASES = {
+  episodeStatus: ['episodeStatus', 'Episode status'],
   latestSummary: ['latestSummary', 'Latest summary'],
   latestWorkingDiagnosis: ['latestWorkingDiagnosis', 'Latest working diagnosis'],
   latestWorkingPlan: ['latestWorkingPlan', 'Latest working plan'],
@@ -33,10 +34,19 @@ export interface ContinuationPayloadExtraction {
 }
 
 export function extractContinuationPayload(
-  toothItems: ToothFindingsItem[] | undefined,
+  input: {
+    toothItems: ToothFindingsItem[] | undefined;
+    caseUpdates?: CaseUpdatesInput;
+  },
 ): ContinuationPayloadExtraction {
+  const { toothItems, caseUpdates } = input;
   const caseIntendedChangesByTooth: Record<string, Record<string, unknown>> = {};
   const followUpIntendedChangesByTooth: Record<string, Record<string, unknown>> = {};
+  const knownToothNumbers = new Set(
+    (toothItems ?? [])
+      .map((toothItem) => toothItem.toothNumber?.trim())
+      .filter((toothNumber): toothNumber is string => Boolean(toothNumber)),
+  );
 
   for (const toothItem of toothItems ?? []) {
     const toothNumber = toothItem.toothNumber?.trim();
@@ -60,6 +70,12 @@ export function extractContinuationPayload(
       followUpIntendedChangesByTooth[toothNumber] = followUpIntendedChanges;
     }
   }
+
+  mergeCaseUpdatesIntoToothMap(
+    caseIntendedChangesByTooth,
+    caseUpdates,
+    knownToothNumbers,
+  );
 
   return {
     caseIntendedChangesByTooth,
@@ -123,4 +139,117 @@ function isMeaningfulPayloadValue(value: unknown): boolean {
   }
 
   return true;
+}
+
+function mergeCaseUpdatesIntoToothMap(
+  caseIntendedChangesByTooth: Record<string, Record<string, unknown>>,
+  caseUpdates: CaseUpdatesInput | undefined,
+  knownToothNumbers: Set<string>,
+): void {
+  if (!caseUpdates) {
+    return;
+  }
+
+  const entries = Array.isArray(caseUpdates) ? caseUpdates : [caseUpdates];
+
+  for (const entry of entries) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      continue;
+    }
+
+    if ('byTooth' in entry && isRecord(entry.byTooth)) {
+      for (const [toothNumber, rawUpdate] of Object.entries(entry.byTooth)) {
+        mergeRecognizedCaseUpdate(
+          caseIntendedChangesByTooth,
+          toothNumber,
+          rawUpdate,
+          knownToothNumbers,
+        );
+      }
+      continue;
+    }
+
+    if ('items' in entry && Array.isArray(entry.items)) {
+      for (const item of entry.items) {
+        const toothNumber = resolveCaseUpdateToothNumber(item, knownToothNumbers);
+        mergeRecognizedCaseUpdate(
+          caseIntendedChangesByTooth,
+          toothNumber,
+          item,
+          knownToothNumbers,
+        );
+      }
+      continue;
+    }
+
+    const toothNumber = resolveCaseUpdateToothNumber(entry, knownToothNumbers);
+    mergeRecognizedCaseUpdate(
+      caseIntendedChangesByTooth,
+      toothNumber,
+      entry,
+      knownToothNumbers,
+    );
+  }
+}
+
+function mergeRecognizedCaseUpdate(
+  caseIntendedChangesByTooth: Record<string, Record<string, unknown>>,
+  toothNumber: string | undefined,
+  rawUpdate: unknown,
+  knownToothNumbers: Set<string>,
+): void {
+  if (!toothNumber || !isRecord(rawUpdate) || !knownToothNumbers.has(toothNumber)) {
+    return;
+  }
+
+  const recognizedUpdate = collectAliasedValuesFromPayload(
+    rawUpdate,
+    CASE_SYNTHESIS_FIELD_ALIASES,
+  );
+  if (Object.keys(recognizedUpdate).length === 0) {
+    return;
+  }
+
+  caseIntendedChangesByTooth[toothNumber] = {
+    ...(caseIntendedChangesByTooth[toothNumber] ?? {}),
+    ...recognizedUpdate,
+  };
+}
+
+function collectAliasedValuesFromPayload(
+  payload: Record<string, unknown>,
+  aliases: Record<string, readonly string[]>,
+): Record<string, unknown> {
+  const collected: Record<string, unknown> = {};
+
+  for (const [targetKey, candidateKeys] of Object.entries(aliases)) {
+    const value = readAliasedPayloadValue(payload, candidateKeys);
+    if (value !== undefined) {
+      collected[targetKey] = value;
+    }
+  }
+
+  return collected;
+}
+
+function resolveCaseUpdateToothNumber(
+  entry: unknown,
+  knownToothNumbers: Set<string>,
+): string | undefined {
+  if (!isRecord(entry)) {
+    return knownToothNumbers.size === 1 ? [...knownToothNumbers][0] : undefined;
+  }
+
+  const directToothNumber = typeof entry.toothNumber === 'string'
+    ? entry.toothNumber.trim()
+    : undefined;
+  if (directToothNumber) {
+    return directToothNumber;
+  }
+
+  return knownToothNumbers.size === 1 ? [...knownToothNumbers][0] : undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

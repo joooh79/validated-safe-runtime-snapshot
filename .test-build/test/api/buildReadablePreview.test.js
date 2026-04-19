@@ -301,6 +301,7 @@ test('buildReadablePreview surfaces new case milestone and post-delivery follow-
                 },
                 payloadIntent: {
                     intendedChanges: {
+                        episodeStatus: 'closed',
                         finalProsthesisPlanDate: '2022-10-19',
                         finalPrepAndScanDate: '2022-10-26',
                         finalProsthesisDeliveryDate: '2022-11-02',
@@ -331,6 +332,7 @@ test('buildReadablePreview surfaces new case milestone and post-delivery follow-
     const readablePreview = buildReadablePreview(preparedRequest, preview, plan);
     assert.equal(readablePreview.visit_summary.representative_fields.some((field) => field.field === 'Episode start visit' &&
         field.value === 'VISIT-916872-20221013'), true);
+    assert.equal(readablePreview.case_summary.representative_fields.some((field) => field.field === 'Episode status' && field.value === 'closed'), true);
     assert.equal(readablePreview.case_summary.representative_fields.some((field) => field.field === 'Final prosthesis plan date' && field.value === '2022-10-19'), true);
     assert.equal(readablePreview.case_summary.representative_fields.some((field) => field.field === 'Latest post-delivery follow-up result' &&
         field.value === 'not checked'), true);

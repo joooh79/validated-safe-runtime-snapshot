@@ -13,6 +13,7 @@ import type { WritePlan, WriteAction } from '../../types/write-plan.js';
 const CURRENT_STATE_UNAVAILABLE = '(current-state unavailable)';
 const EMPTY_PLACEHOLDER = '(empty)';
 const CASE_FIELD_LABELS: Record<string, string> = {
+  episodeStatus: 'Episode status',
   finalProsthesisPlanDate: 'Final prosthesis plan date',
   finalPrepAndScanDate: 'Final prep & scan date',
   finalProsthesisDeliveryDate: 'Final prosthesis delivery date',

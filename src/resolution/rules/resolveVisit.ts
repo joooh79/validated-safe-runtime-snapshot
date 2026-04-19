@@ -26,6 +26,14 @@ export function resolveVisit(
   // Determine visit date to use
   const effectiveVisitDate = context.visitDate || context.targetVisitDate;
 
+  if (isPatientOnlyUpdate(contract, effectiveVisitDate)) {
+    reasons.push('patient_only_update_no_visit_needed');
+    return {
+      status: 'no_visit_needed',
+      reasons,
+    };
+  }
+
   // Check same-date conditions
   const sameDateVisitExists = sameDateLookup.found && sameDateLookup.visitId;
 
@@ -107,10 +115,46 @@ export function resolveVisit(
     };
   }
 
+  if (intent === 'patient_update') {
+    reasons.push('patient_update_intent + no_visit_needed');
+    return {
+      status: 'no_visit_needed',
+      reasons,
+    };
+  }
+
   // Case 3: Unknown intent or state
   reasons.push('visit_intent_unknown_or_unhandled');
   return {
     status: 'unresolved_visit_ambiguity',
     reasons,
   };
+}
+
+function isPatientOnlyUpdate(
+  contract: NormalizedContract,
+  effectiveVisitDate: string | undefined,
+): boolean {
+  if (effectiveVisitDate) {
+    return false;
+  }
+
+  if (contract.workflowIntent === 'patient_update') {
+    return true;
+  }
+
+  const hasFindings = contract.findingsContext.toothItems.some(
+    (item) => item.branches.length > 0,
+  );
+  if (hasFindings) {
+    return false;
+  }
+
+  const hasPatientUpdateFields =
+    (contract.patientClues.birthYear !== undefined &&
+      String(contract.patientClues.birthYear) !== '') ||
+    (typeof contract.patientClues.genderHint === 'string' &&
+      contract.patientClues.genderHint.trim().length > 0);
+
+  return hasPatientUpdateFields;
 }

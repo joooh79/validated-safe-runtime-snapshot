@@ -12,6 +12,7 @@ export async function normalizeRequest(request) {
     }
     applyInteractionInput(normalized, request);
     applyWorkflowClaimDefaults(normalized);
+    inferWorkflowIntent(normalized);
     normalizeFindingsPayloadKeys(normalized);
     const validation = isNormalizedContractValid(normalized);
     if (!validation.valid) {
@@ -96,6 +97,24 @@ function applyWorkflowClaimDefaults(contract) {
         contract.patientClues.existingPatientClaim = false;
     }
 }
+function inferWorkflowIntent(contract) {
+    if (contract.workflowIntent !== 'unknown') {
+        return;
+    }
+    const hasVisitContext = hasMeaningfulValue(contract.visitContext.visitDate) ||
+        hasMeaningfulValue(contract.visitContext.targetVisitDate) ||
+        hasMeaningfulValue(contract.visitContext.targetVisitId) ||
+        hasMeaningfulValue(contract.visitContext.targetVisitClue) ||
+        hasMeaningfulValue(contract.visitContext.visitType) ||
+        hasMeaningfulValue(contract.visitContext.chiefComplaint);
+    const hasFindings = contract.findingsContext.toothItems.length > 0;
+    const hasPatientUpdateContent = hasMeaningfulValue(contract.patientClues.patientId) &&
+        (hasMeaningfulValue(contract.patientClues.birthYear) ||
+            hasMeaningfulValue(contract.patientClues.genderHint));
+    if (!hasVisitContext && !hasFindings && hasPatientUpdateContent) {
+        contract.workflowIntent = 'patient_update';
+    }
+}
 function applyInteractionLookupPatch(lookupBundle, request) {
     const recheckInput = request.interactionInput?.recheck;
     const caseSelectionInput = request.interactionInput?.caseSelection;
@@ -156,6 +175,15 @@ function mergeProviderNotes(existing, next) {
     }
     return `${existing}; ${next}`;
 }
+function hasMeaningfulValue(value) {
+    if (value === null || value === undefined) {
+        return false;
+    }
+    if (typeof value === 'string') {
+        return value.trim().length > 0;
+    }
+    return true;
+}
 function resolveProvider(request) {
     if (request.provider) {
         return request.provider;
@@ -201,6 +229,13 @@ function cloneContract(contract) {
         patientClues: { ...contract.patientClues },
         visitContext: { ...contract.visitContext },
         findingsContext,
+        ...(contract.caseUpdates !== undefined
+            ? {
+                caseUpdates: Array.isArray(contract.caseUpdates)
+                    ? contract.caseUpdates.map((item) => ({ ...item }))
+                    : { ...contract.caseUpdates },
+            }
+            : {}),
         warnings: [...contract.warnings],
     };
 }

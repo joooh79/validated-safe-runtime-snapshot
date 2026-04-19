@@ -31,7 +31,12 @@
 import type { StateResolutionResult } from '../types/resolution.js';
 import type { WriteAction, WritePlan } from '../types/write-plan.js';
 import type { SnapshotBranch } from '../types/core.js';
-import type { PatientClues, VisitContext, ToothFindingsItem } from '../types/contract.js';
+import type {
+  PatientClues,
+  VisitContext,
+  ToothFindingsItem,
+  CaseUpdatesInput,
+} from '../types/contract.js';
 import type { CurrentStateLookupBundle } from '../resolution/index.js';
 import { buildPatientActions } from './rules/buildPatientActions.js';
 import { buildVisitActions } from './rules/buildVisitActions.js';
@@ -70,6 +75,7 @@ export interface BuildWritePlanInput {
   patientClues?: PatientClues;
   visitContext?: VisitContext;
   toothItems?: ToothFindingsItem[];
+  caseUpdates?: CaseUpdatesInput;
 }
 
 /**
@@ -87,6 +93,7 @@ export async function buildWritePlan(input: BuildWritePlanInput): Promise<WriteP
     patientClues,
     visitContext,
     toothItems,
+    caseUpdates,
   } = input;
 
   // Generate plan ID (deterministic based on request)
@@ -103,18 +110,28 @@ export async function buildWritePlan(input: BuildWritePlanInput): Promise<WriteP
   const hasSnapshotWrites = branchIntents.some((intent) =>
     snapshotBranchIntentProducesWrite(intent, snapshotLookups),
   );
-  const continuationPayload = extractContinuationPayload(toothItems);
+  const continuationPayload = extractContinuationPayload({
+    toothItems,
+    ...(caseUpdates !== undefined ? { caseUpdates } : {}),
+  });
   const episodeStartVisitId = resolveSafeEpisodeStartVisitId(resolution);
+  const hasCaseIntendedChanges = Object.keys(
+    continuationPayload.caseIntendedChangesByTooth,
+  ).length > 0;
+  const hasPatientContent = hasPatientUpdateContent(patientClues);
 
   // Step 1: Build patient actions
   const patientActions = buildPatientActions({
     planId,
     resolution: resolution.patient,
-    hasPatientContent: false,
+    hasPatientContent,
     claimedPatientId: patientClues?.patientId,
     birthYear: patientClues?.birthYear,
     genderHint: patientClues?.genderHint,
-    firstVisitDate: visitContext?.visitDate,
+    firstVisitDate:
+      resolution.patient.status === 'create_new_patient'
+        ? visitContext?.visitDate
+        : undefined,
   });
 
   if (patientActions.length === 0) {
@@ -151,7 +168,8 @@ export async function buildWritePlan(input: BuildWritePlanInput): Promise<WriteP
     visitActionId: visitActions[0]!.actionId,
     snapshotActionIds: [], // Will be filled after snapshot actions
     hasCaseContent:
-      hasSnapshotContent && resolution.caseResolution.status !== 'none',
+      (hasSnapshotContent || hasCaseIntendedChanges) &&
+      resolution.caseResolution.status !== 'none',
     claimedPatientId: patientClues?.patientId,
     caseIntendedChangesByTooth: continuationPayload.caseIntendedChangesByTooth,
   });
@@ -178,7 +196,8 @@ export async function buildWritePlan(input: BuildWritePlanInput): Promise<WriteP
     visitActionId: visitActions[0]!.actionId,
     snapshotActionIds,
     hasCaseContent:
-      hasSnapshotContent && resolution.caseResolution.status !== 'none',
+      (hasSnapshotContent || hasCaseIntendedChanges) &&
+      resolution.caseResolution.status !== 'none',
     claimedPatientId: patientClues?.patientId,
     caseIntendedChangesByTooth: continuationPayload.caseIntendedChangesByTooth,
   });
@@ -396,6 +415,21 @@ function compareIndexedActions(
   }
 
   return left.index - right.index;
+}
+
+function hasPatientUpdateContent(
+  patientClues: PatientClues | undefined,
+): boolean {
+  if (!patientClues) {
+    return false;
+  }
+
+  return (
+    (patientClues.birthYear !== undefined &&
+      String(patientClues.birthYear) !== '') ||
+    (typeof patientClues.genderHint === 'string' &&
+      patientClues.genderHint.trim().length > 0)
+  );
 }
 
 /**

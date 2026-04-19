@@ -79,6 +79,11 @@ export function buildVisitActions(
       }
       break;
 
+    case 'no_visit_needed':
+      actionType = 'no_op_visit';
+      targetMode = 'no_op';
+      break;
+
     case 'correction_needed_same_date_conflict':
     case 'hard_stop_same_date_keep_new_visit_claim':
     case 'unresolved_visit_ambiguity':
