@@ -7,6 +7,8 @@ import type {
 } from '../../types/resolution.js';
 import type { CurrentStateLookupBundle } from '../types.js';
 
+const DIRECT_CASE_LOOKUP_KEY = '__direct_case__';
+
 /**
  * Resolve case continuity
  *
@@ -39,6 +41,51 @@ export function resolveCase(
     ...(toothNumber ? { toothNumber } : {}),
     ...(visitDate ? { visitDate } : {}),
   });
+  const directCaseUpdate = extractDirectCaseUpdate(contract.caseUpdates);
+
+  if (
+    contract.workflowIntent === 'case_update' ||
+    (directCaseUpdate &&
+      toothItems.length === 0 &&
+      visitResolution.status === 'no_visit_needed')
+  ) {
+    reasons.push('workflow_intent_case_update');
+
+    if (!directCaseUpdate?.caseId) {
+      reasons.push('case_update_requires_exact_case_id');
+      return {
+        status: 'unresolved_case_ambiguity',
+        reasons,
+      };
+    }
+
+    if (Object.keys(directCaseUpdate.intendedChanges).length === 0) {
+      reasons.push('case_update_requires_recognized_case_fields');
+      return {
+        status: 'none',
+        reasons,
+      };
+    }
+
+    const directLookup = lookups.caseLookups[DIRECT_CASE_LOOKUP_KEY];
+    const resolvedToothNumber =
+      directLookup?.toothNumber || directCaseUpdate.toothNumber;
+    const target: CaseResolutionTarget = {
+      status: 'direct_case_update',
+      ...(resolvedToothNumber ? { toothNumber: resolvedToothNumber } : {}),
+      resolvedCaseId: directLookup?.caseId || directCaseUpdate.caseId,
+      ...(directLookup?.recordId
+        ? { resolvedCaseRecordRef: directLookup.recordId }
+        : {}),
+      ...(directLookup?.episodeStartDate
+        ? { episodeStartDate: directLookup.episodeStartDate }
+        : {}),
+      reasons: ['direct_case_update'],
+    };
+
+    reasons.push('direct_case_update_from_case_id');
+    return finalizeCaseResolution('direct_case_update', [target], reasons);
+  }
 
   // If no findings, no case to resolve
   if (!toothItems || toothItems.length === 0) {
@@ -306,4 +353,100 @@ function resolveContinueCaseCandidates(
   }
 
   return [];
+}
+
+function extractDirectCaseUpdate(
+  caseUpdates: NormalizedContract['caseUpdates'],
+): { caseId?: string; toothNumber?: string; intendedChanges: Record<string, unknown> } | undefined {
+  if (!caseUpdates) {
+    return undefined;
+  }
+
+  const entries = Array.isArray(caseUpdates) ? caseUpdates : [caseUpdates];
+
+  for (const entry of entries) {
+    if (!isRecord(entry) || 'byTooth' in entry || 'items' in entry) {
+      continue;
+    }
+
+    const caseId =
+      typeof entry.caseId === 'string' && entry.caseId.trim()
+        ? entry.caseId.trim()
+        : typeof entry['Case ID'] === 'string' && entry['Case ID'].trim()
+          ? entry['Case ID'].trim()
+          : undefined;
+    if (!caseId) {
+      continue;
+    }
+
+    return {
+      caseId,
+      ...(typeof entry.toothNumber === 'string' && entry.toothNumber.trim()
+        ? { toothNumber: entry.toothNumber.trim() }
+        : {}),
+      intendedChanges: collectRecognizedCaseUpdateFields(entry),
+    };
+  }
+
+  return undefined;
+}
+
+function collectRecognizedCaseUpdateFields(entry: Record<string, unknown>): Record<string, unknown> {
+  const aliases: Record<string, readonly string[]> = {
+    episodeStatus: ['episodeStatus', 'Episode status'],
+    latestSummary: ['latestSummary', 'Latest summary'],
+    latestWorkingDiagnosis: ['latestWorkingDiagnosis', 'Latest working diagnosis'],
+    latestWorkingPlan: ['latestWorkingPlan', 'Latest working plan'],
+    finalProsthesisPlanDate: ['finalProsthesisPlanDate', 'Final prosthesis plan date'],
+    finalPrepAndScanDate: ['finalPrepAndScanDate', 'Final prep & scan date'],
+    finalProsthesisDeliveryDate: [
+      'finalProsthesisDeliveryDate',
+      'Final prosthesis delivery date',
+    ],
+    latestPostDeliveryFollowUpDate: [
+      'latestPostDeliveryFollowUpDate',
+      'Latest post-delivery follow-up date',
+    ],
+    latestPostDeliveryFollowUpResult: [
+      'latestPostDeliveryFollowUpResult',
+      'Latest post-delivery follow-up result',
+    ],
+  };
+  const collected: Record<string, unknown> = {};
+
+  for (const [targetKey, candidateKeys] of Object.entries(aliases)) {
+    for (const candidateKey of candidateKeys) {
+      if (!(candidateKey in entry)) {
+        continue;
+      }
+
+      const value = entry[candidateKey];
+      if (isMeaningfulValue(value)) {
+        collected[targetKey] = value;
+        break;
+      }
+    }
+  }
+
+  return collected;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isMeaningfulValue(value: unknown): boolean {
+  if (value === undefined || value === null) {
+    return false;
+  }
+
+  if (typeof value === 'string') {
+    return value.trim().length > 0;
+  }
+
+  if (Array.isArray(value)) {
+    return value.length > 0;
+  }
+
+  return true;
 }

@@ -188,7 +188,7 @@ function mapUpdateCaseLatestSynthesis(
   action: WriteAction,
   registry: MappingRegistry,
 ): MapCaseActionOutput {
-  const recordId = action.target.caseId;
+  const recordId = action.target.entityRef || action.target.caseId;
   if (!recordId || recordId === 'NEW') {
     return {
       success: false,
@@ -200,9 +200,13 @@ function mapUpdateCaseLatestSynthesis(
     };
   }
 
-  const patientId = normalizeString(action.target.patientId);
-  const visitDate = normalizeDate(action.target.visitDate);
-  if (isAdapterError(patientId) || isAdapterError(visitDate)) {
+  const isDirectCaseUpdate = action.target.sourceResolutionPath === 'case_direct_update';
+  const normalizedPatientId = normalizeString(action.target.patientId);
+  const normalizedVisitDate = normalizeDate(action.target.visitDate);
+  if (
+    !isDirectCaseUpdate &&
+    (isAdapterError(normalizedPatientId) || isAdapterError(normalizedVisitDate))
+  ) {
     return {
       success: false,
       error: canonConfirmRequiredError(
@@ -213,11 +217,15 @@ function mapUpdateCaseLatestSynthesis(
     };
   }
 
-  const fields: Record<string, unknown> = {
-    [registry.caseFields.latestVisitId.fieldName]: buildVisitId(patientId, visitDate),
-    [registry.caseFields.episodeStatus.fieldName]:
-      registry.episodeStatusOptions.open,
-  };
+  const fields: Record<string, unknown> = {};
+  if (!isDirectCaseUpdate) {
+    fields[registry.caseFields.latestVisitId.fieldName] = buildVisitId(
+      normalizedPatientId as string,
+      normalizedVisitDate as string,
+    );
+    fields[registry.caseFields.episodeStatus.fieldName] =
+      registry.episodeStatusOptions.open;
+  }
 
   const intended = action.payloadIntent?.intendedChanges as Record<string, unknown> | undefined;
 

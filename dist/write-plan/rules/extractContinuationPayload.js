@@ -28,6 +28,7 @@ export function extractContinuationPayload(input) {
     const { toothItems, caseUpdates } = input;
     const caseIntendedChangesByTooth = {};
     const followUpIntendedChangesByTooth = {};
+    const directCaseUpdate = extractDirectCaseUpdate(caseUpdates);
     const knownToothNumbers = new Set((toothItems ?? [])
         .map((toothItem) => toothItem.toothNumber?.trim())
         .filter((toothNumber) => Boolean(toothNumber)));
@@ -49,6 +50,7 @@ export function extractContinuationPayload(input) {
     return {
         caseIntendedChangesByTooth,
         followUpIntendedChangesByTooth,
+        ...(directCaseUpdate ? { directCaseUpdate } : {}),
     };
 }
 function collectAliasedValues(toothItem, aliases) {
@@ -154,4 +156,40 @@ function resolveCaseUpdateToothNumber(entry, knownToothNumbers) {
 }
 function isRecord(value) {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+function extractDirectCaseUpdate(caseUpdates) {
+    if (!caseUpdates) {
+        return undefined;
+    }
+    const entries = Array.isArray(caseUpdates) ? caseUpdates : [caseUpdates];
+    for (const entry of entries) {
+        if (!isRecord(entry) || 'byTooth' in entry || 'items' in entry) {
+            continue;
+        }
+        const caseId = resolveDirectCaseId(entry);
+        if (!caseId) {
+            continue;
+        }
+        const intendedChanges = collectAliasedValuesFromPayload(entry, CASE_SYNTHESIS_FIELD_ALIASES);
+        if (Object.keys(intendedChanges).length === 0) {
+            continue;
+        }
+        return {
+            caseId,
+            ...(typeof entry.toothNumber === 'string' && entry.toothNumber.trim()
+                ? { toothNumber: entry.toothNumber.trim() }
+                : {}),
+            intendedChanges,
+        };
+    }
+    return undefined;
+}
+function resolveDirectCaseId(entry) {
+    if (typeof entry.caseId === 'string' && entry.caseId.trim()) {
+        return entry.caseId.trim();
+    }
+    if (typeof entry['Case ID'] === 'string' && entry['Case ID'].trim()) {
+        return entry['Case ID'].trim();
+    }
+    return undefined;
 }

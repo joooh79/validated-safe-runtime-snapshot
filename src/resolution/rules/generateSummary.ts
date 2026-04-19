@@ -30,6 +30,9 @@ function summarizePatientAction(patient: PatientResolution): string {
     case 'create_new_patient':
       return 'Create new patient';
 
+    case 'no_patient_needed':
+      return 'No patient action needed';
+
     case 'correction_needed_patient_duplicate_suspicion':
       return `Possible duplicate found. Please confirm patient identity.`;
 
@@ -97,6 +100,9 @@ function summarizeCaseAction(caseRes: CaseResolution): string {
         return `Continue existing case for tooth ${targetTeeth[0]}: ${caseRes.resolvedCaseId || 'ID pending'}`;
       }
       return `Continue existing case: ${caseRes.resolvedCaseId || 'ID pending'}`;
+
+    case 'direct_case_update':
+      return `Update existing case: ${caseRes.resolvedCaseId || 'ID pending'}`;
 
     case 'close_case':
       return `Close case: ${caseRes.resolvedCaseId || 'ID pending'}`;

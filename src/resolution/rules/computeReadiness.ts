@@ -116,7 +116,8 @@ export function computeInteractionMode(
 function isPatientResolutionValid(patient: PatientResolution): boolean {
   return (
     patient.status === 'resolved_existing_patient' ||
-    patient.status === 'create_new_patient'
+    patient.status === 'create_new_patient' ||
+    patient.status === 'no_patient_needed'
   );
 }
 
@@ -144,7 +145,8 @@ function hasRequiredRuntimeRefs(
   }
 
   if (
-    caseResolution.status === 'continue_case' &&
+    (caseResolution.status === 'continue_case' ||
+      caseResolution.status === 'direct_case_update') &&
     !caseResolution.resolvedCaseRecordRef &&
     !caseResolution.resolvedCaseId
   ) {

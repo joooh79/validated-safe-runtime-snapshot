@@ -31,6 +31,11 @@ const POST_DELIVERY_FOLLOW_UP_FIELD_ALIASES = {
 export interface ContinuationPayloadExtraction {
   caseIntendedChangesByTooth: Record<string, Record<string, unknown>>;
   followUpIntendedChangesByTooth: Record<string, Record<string, unknown>>;
+  directCaseUpdate?: {
+    caseId: string;
+    toothNumber?: string;
+    intendedChanges: Record<string, unknown>;
+  };
 }
 
 export function extractContinuationPayload(
@@ -42,6 +47,7 @@ export function extractContinuationPayload(
   const { toothItems, caseUpdates } = input;
   const caseIntendedChangesByTooth: Record<string, Record<string, unknown>> = {};
   const followUpIntendedChangesByTooth: Record<string, Record<string, unknown>> = {};
+  const directCaseUpdate = extractDirectCaseUpdate(caseUpdates);
   const knownToothNumbers = new Set(
     (toothItems ?? [])
       .map((toothItem) => toothItem.toothNumber?.trim())
@@ -80,6 +86,7 @@ export function extractContinuationPayload(
   return {
     caseIntendedChangesByTooth,
     followUpIntendedChangesByTooth,
+    ...(directCaseUpdate ? { directCaseUpdate } : {}),
   };
 }
 
@@ -252,4 +259,61 @@ function resolveCaseUpdateToothNumber(
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function extractDirectCaseUpdate(
+  caseUpdates: CaseUpdatesInput | undefined,
+):
+  | {
+      caseId: string;
+      toothNumber?: string;
+      intendedChanges: Record<string, unknown>;
+    }
+  | undefined {
+  if (!caseUpdates) {
+    return undefined;
+  }
+
+  const entries = Array.isArray(caseUpdates) ? caseUpdates : [caseUpdates];
+
+  for (const entry of entries) {
+    if (!isRecord(entry) || 'byTooth' in entry || 'items' in entry) {
+      continue;
+    }
+
+    const caseId = resolveDirectCaseId(entry);
+    if (!caseId) {
+      continue;
+    }
+
+    const intendedChanges = collectAliasedValuesFromPayload(
+      entry,
+      CASE_SYNTHESIS_FIELD_ALIASES,
+    );
+    if (Object.keys(intendedChanges).length === 0) {
+      continue;
+    }
+
+    return {
+      caseId,
+      ...(typeof entry.toothNumber === 'string' && entry.toothNumber.trim()
+        ? { toothNumber: entry.toothNumber.trim() }
+        : {}),
+      intendedChanges,
+    };
+  }
+
+  return undefined;
+}
+
+function resolveDirectCaseId(entry: Record<string, unknown>): string | undefined {
+  if (typeof entry.caseId === 'string' && entry.caseId.trim()) {
+    return entry.caseId.trim();
+  }
+
+  if (typeof entry['Case ID'] === 'string' && entry['Case ID'].trim()) {
+    return entry['Case ID'].trim();
+  }
+
+  return undefined;
 }

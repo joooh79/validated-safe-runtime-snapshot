@@ -14,6 +14,7 @@ export type WorkflowIntent =
   | 'existing_patient_new_visit'
   | 'existing_visit_update'
   | 'patient_update'
+  | 'case_update'
   | 'unknown';
 
 export type ContinuityIntent =

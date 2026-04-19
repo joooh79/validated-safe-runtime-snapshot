@@ -25,6 +25,19 @@ export function resolvePatient(
     clues.newPatientClaim === true ||
     contract.workflowIntent === 'new_patient_new_visit';
 
+  if (
+    contract.workflowIntent === 'case_update' &&
+    !clues.patientId &&
+    clues.existingPatientClaim !== true &&
+    clues.newPatientClaim !== true
+  ) {
+    reasons.push('case_update_no_patient_needed');
+    return {
+      status: 'no_patient_needed',
+      reasons,
+    };
+  }
+
   // Case 1: Explicit existing patient claim
   if (isExplicitExistingPatient) {
     if (lookup.found && lookup.patientId) {

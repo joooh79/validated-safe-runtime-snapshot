@@ -8,6 +8,8 @@ import type {
 } from '../../resolution/index.js';
 import { caseFields, patientFields } from '../../providers/airtable/mappingRegistry.js';
 
+const DIRECT_CASE_LOOKUP_KEY = '__direct_case__';
+
 interface RealProviderConfig {
   kind: 'airtable';
   mode: 'real';
@@ -33,6 +35,22 @@ export async function enrichLookupBundle(
   const providerConfig = getRealProviderConfig(request.providerConfig);
   if (!providerConfig) {
     return;
+  }
+
+  const directCaseId = extractDirectCaseId(contract.caseUpdates);
+  if (directCaseId) {
+    const directCaseLookup = await resolveCaseLookupByCaseId(
+      providerConfig,
+      directCaseId,
+      lookupBundle.caseLookups[DIRECT_CASE_LOOKUP_KEY] ?? {
+        found: true,
+        caseId: directCaseId,
+      },
+    );
+
+    if (directCaseLookup) {
+      lookupBundle.caseLookups[DIRECT_CASE_LOOKUP_KEY] = directCaseLookup;
+    }
   }
 
   const patientId = contract.patientClues.patientId?.trim();
@@ -285,6 +303,31 @@ function extractDateFromVisitId(value: string | undefined): string | undefined {
   }
 
   return `${match[1]}-${match[2]}-${match[3]}`;
+}
+
+function extractDirectCaseId(
+  caseUpdates: NormalizedContract['caseUpdates'],
+): string | undefined {
+  if (!caseUpdates) {
+    return undefined;
+  }
+
+  const entries = Array.isArray(caseUpdates) ? caseUpdates : [caseUpdates];
+  for (const entry of entries) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      continue;
+    }
+
+    if (typeof entry.caseId === 'string' && entry.caseId.trim()) {
+      return entry.caseId.trim();
+    }
+
+    if (typeof entry['Case ID'] === 'string' && entry['Case ID'].trim()) {
+      return entry['Case ID'].trim();
+    }
+  }
+
+  return undefined;
 }
 
 function normalizeCaseStatus(

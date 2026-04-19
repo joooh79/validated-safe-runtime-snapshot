@@ -18,6 +18,8 @@ function summarizePatientAction(patient) {
             return `Use existing patient: ${patient.resolvedPatientId || 'ID pending'}`;
         case 'create_new_patient':
             return 'Create new patient';
+        case 'no_patient_needed':
+            return 'No patient action needed';
         case 'correction_needed_patient_duplicate_suspicion':
             return `Possible duplicate found. Please confirm patient identity.`;
         case 'recheck_required_patient_not_found':
@@ -71,6 +73,8 @@ function summarizeCaseAction(caseRes) {
                 return `Continue existing case for tooth ${targetTeeth[0]}: ${caseRes.resolvedCaseId || 'ID pending'}`;
             }
             return `Continue existing case: ${caseRes.resolvedCaseId || 'ID pending'}`;
+        case 'direct_case_update':
+            return `Update existing case: ${caseRes.resolvedCaseId || 'ID pending'}`;
         case 'close_case':
             return `Close case: ${caseRes.resolvedCaseId || 'ID pending'}`;
         case 'split_case':

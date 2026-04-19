@@ -109,25 +109,29 @@ function mapCreateCase(action, registry, resolvedRefs, requireRuntimeRefs = fals
     };
 }
 function mapUpdateCaseLatestSynthesis(action, registry) {
-    const recordId = action.target.caseId;
+    const recordId = action.target.entityRef || action.target.caseId;
     if (!recordId || recordId === 'NEW') {
         return {
             success: false,
             error: canonConfirmRequiredError('Cases.Case ID', 'Cases', 'case continuation update requires a resolved existing case identifier'),
         };
     }
-    const patientId = normalizeString(action.target.patientId);
-    const visitDate = normalizeDate(action.target.visitDate);
-    if (isAdapterError(patientId) || isAdapterError(visitDate)) {
+    const isDirectCaseUpdate = action.target.sourceResolutionPath === 'case_direct_update';
+    const normalizedPatientId = normalizeString(action.target.patientId);
+    const normalizedVisitDate = normalizeDate(action.target.visitDate);
+    if (!isDirectCaseUpdate &&
+        (isAdapterError(normalizedPatientId) || isAdapterError(normalizedVisitDate))) {
         return {
             success: false,
             error: canonConfirmRequiredError('Cases.Latest Visit ID', 'Cases', 'case continuation update requires resolved patient identity and visit date to derive the canonical latest visit id'),
         };
     }
-    const fields = {
-        [registry.caseFields.latestVisitId.fieldName]: buildVisitId(patientId, visitDate),
-        [registry.caseFields.episodeStatus.fieldName]: registry.episodeStatusOptions.open,
-    };
+    const fields = {};
+    if (!isDirectCaseUpdate) {
+        fields[registry.caseFields.latestVisitId.fieldName] = buildVisitId(normalizedPatientId, normalizedVisitDate);
+        fields[registry.caseFields.episodeStatus.fieldName] =
+            registry.episodeStatusOptions.open;
+    }
     const intended = action.payloadIntent?.intendedChanges;
     if (typeof intended?.latestSummary === 'string' && intended.latestSummary.trim()) {
         fields[registry.caseFields.latestSummary.fieldName] = intended.latestSummary.trim();

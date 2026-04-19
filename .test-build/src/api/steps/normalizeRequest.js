@@ -111,8 +111,15 @@ function inferWorkflowIntent(contract) {
     const hasPatientUpdateContent = hasMeaningfulValue(contract.patientClues.patientId) &&
         (hasMeaningfulValue(contract.patientClues.birthYear) ||
             hasMeaningfulValue(contract.patientClues.genderHint));
+    const hasDirectCaseUpdate = !hasVisitContext &&
+        !hasFindings &&
+        hasMeaningfulValue(resolveDirectCaseUpdateCaseId(contract.caseUpdates));
     if (!hasVisitContext && !hasFindings && hasPatientUpdateContent) {
         contract.workflowIntent = 'patient_update';
+        return;
+    }
+    if (hasDirectCaseUpdate) {
+        contract.workflowIntent = 'case_update';
     }
 }
 function applyInteractionLookupPatch(lookupBundle, request) {
@@ -183,6 +190,24 @@ function hasMeaningfulValue(value) {
         return value.trim().length > 0;
     }
     return true;
+}
+function resolveDirectCaseUpdateCaseId(caseUpdates) {
+    if (!caseUpdates) {
+        return undefined;
+    }
+    const entries = Array.isArray(caseUpdates) ? caseUpdates : [caseUpdates];
+    for (const entry of entries) {
+        if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+            continue;
+        }
+        if (typeof entry.caseId === 'string' && entry.caseId.trim()) {
+            return entry.caseId.trim();
+        }
+        if (typeof entry['Case ID'] === 'string' && entry['Case ID'].trim()) {
+            return entry['Case ID'].trim();
+        }
+    }
+    return undefined;
 }
 function resolveProvider(request) {
     if (request.provider) {

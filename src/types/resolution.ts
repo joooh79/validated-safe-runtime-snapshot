@@ -4,6 +4,7 @@ export interface PatientResolution {
   status:
     | 'resolved_existing_patient'
     | 'create_new_patient'
+    | 'no_patient_needed'
     | 'correction_needed_patient_duplicate_suspicion'
     | 'recheck_required_patient_not_found'
     | 'unresolved_ambiguous_patient'
@@ -32,6 +33,7 @@ export interface CaseResolution {
   status:
     | 'create_case'
     | 'continue_case'
+    | 'direct_case_update'
     | 'close_case'
     | 'split_case'
     | 'none'
@@ -51,9 +53,10 @@ export interface CaseResolutionTarget {
   status:
     | 'create_case'
     | 'continue_case'
+    | 'direct_case_update'
     | 'close_case'
     | 'split_case';
-  toothNumber: string;
+  toothNumber?: string;
   resolvedCaseId?: string;
   resolvedCaseRecordRef?: string;
   visitDate?: string;

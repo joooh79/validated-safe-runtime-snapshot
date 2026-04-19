@@ -118,6 +118,10 @@ export async function buildWritePlan(input: BuildWritePlanInput): Promise<WriteP
   const hasCaseIntendedChanges = Object.keys(
     continuationPayload.caseIntendedChangesByTooth,
   ).length > 0;
+  const hasDirectCaseIntendedChanges = Boolean(
+    continuationPayload.directCaseUpdate &&
+      Object.keys(continuationPayload.directCaseUpdate.intendedChanges).length > 0,
+  );
   const hasPatientContent = hasPatientUpdateContent(patientClues);
 
   // Step 1: Build patient actions
@@ -168,10 +172,13 @@ export async function buildWritePlan(input: BuildWritePlanInput): Promise<WriteP
     visitActionId: visitActions[0]!.actionId,
     snapshotActionIds: [], // Will be filled after snapshot actions
     hasCaseContent:
-      (hasSnapshotContent || hasCaseIntendedChanges) &&
+      (hasSnapshotContent || hasCaseIntendedChanges || hasDirectCaseIntendedChanges) &&
       resolution.caseResolution.status !== 'none',
     claimedPatientId: patientClues?.patientId,
     caseIntendedChangesByTooth: continuationPayload.caseIntendedChangesByTooth,
+    ...(continuationPayload.directCaseUpdate
+      ? { directCaseUpdate: continuationPayload.directCaseUpdate }
+      : {}),
   });
 
   // Build snapshot actions
@@ -196,10 +203,13 @@ export async function buildWritePlan(input: BuildWritePlanInput): Promise<WriteP
     visitActionId: visitActions[0]!.actionId,
     snapshotActionIds,
     hasCaseContent:
-      (hasSnapshotContent || hasCaseIntendedChanges) &&
+      (hasSnapshotContent || hasCaseIntendedChanges || hasDirectCaseIntendedChanges) &&
       resolution.caseResolution.status !== 'none',
     claimedPatientId: patientClues?.patientId,
     caseIntendedChangesByTooth: continuationPayload.caseIntendedChangesByTooth,
+    ...(continuationPayload.directCaseUpdate
+      ? { directCaseUpdate: continuationPayload.directCaseUpdate }
+      : {}),
   });
 
   // Step 5: Build link actions

@@ -23,6 +23,13 @@ export function resolveVisit(contract, sameDateLookup) {
             reasons,
         };
     }
+    if (isCaseOnlyUpdate(contract, effectiveVisitDate)) {
+        reasons.push('case_only_update_no_visit_needed');
+        return {
+            status: 'no_visit_needed',
+            reasons,
+        };
+    }
     // Check same-date conditions
     const sameDateVisitExists = sameDateLookup.found && sameDateLookup.visitId;
     // Case 1: Explicit existing visit update intent
@@ -97,6 +104,13 @@ export function resolveVisit(contract, sameDateLookup) {
             reasons,
         };
     }
+    if (intent === 'case_update') {
+        reasons.push('case_update_intent + no_visit_needed');
+        return {
+            status: 'no_visit_needed',
+            reasons,
+        };
+    }
     // Case 3: Unknown intent or state
     reasons.push('visit_intent_unknown_or_unhandled');
     return {
@@ -120,4 +134,29 @@ function isPatientOnlyUpdate(contract, effectiveVisitDate) {
         (typeof contract.patientClues.genderHint === 'string' &&
             contract.patientClues.genderHint.trim().length > 0);
     return hasPatientUpdateFields;
+}
+function isCaseOnlyUpdate(contract, effectiveVisitDate) {
+    if (effectiveVisitDate) {
+        return false;
+    }
+    if (contract.workflowIntent === 'case_update') {
+        return true;
+    }
+    const hasFindings = contract.findingsContext.toothItems.some((item) => item.branches.length > 0);
+    if (hasFindings) {
+        return false;
+    }
+    if (!contract.caseUpdates) {
+        return false;
+    }
+    const entries = Array.isArray(contract.caseUpdates)
+        ? contract.caseUpdates
+        : [contract.caseUpdates];
+    return entries.some((entry) => {
+        if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+            return false;
+        }
+        return ((typeof entry.caseId === 'string' && entry.caseId.trim().length > 0) ||
+            (typeof entry['Case ID'] === 'string' && entry['Case ID'].trim().length > 0));
+    });
 }

@@ -47,6 +47,11 @@ export interface BuildCaseActionsInput {
   hasCaseContent: boolean;
   claimedPatientId?: string | undefined;
   caseIntendedChangesByTooth?: Record<string, Record<string, unknown>>;
+  directCaseUpdate?: {
+    caseId: string;
+    toothNumber?: string;
+    intendedChanges: Record<string, unknown>;
+  };
 }
 
 export function buildCaseActions(
@@ -62,6 +67,7 @@ export function buildCaseActions(
     hasCaseContent,
     claimedPatientId,
     caseIntendedChangesByTooth,
+    directCaseUpdate,
   } = input;
 
   const actions: WriteAction[] = [];
@@ -100,9 +106,12 @@ export function buildCaseActions(
       hasCaseContent,
       target: caseTarget,
       primaryActionId: primaryAction?.actionId,
-      intendedChanges: caseTarget.toothNumber
-        ? caseIntendedChangesByTooth?.[caseTarget.toothNumber]
-        : undefined,
+      intendedChanges:
+        caseTarget.status === 'direct_case_update'
+          ? directCaseUpdate?.intendedChanges
+          : caseTarget.toothNumber
+            ? caseIntendedChangesByTooth?.[caseTarget.toothNumber]
+            : undefined,
     });
 
     if (synthesisAction) {
@@ -138,6 +147,7 @@ function buildPrimaryCaseAction(input: {
       primaryActionType = 'split_case';
       primaryTargetMode = 'create_new';
       break;
+    case 'direct_case_update':
     case 'continue_case':
     default:
       primaryActionType = null;
@@ -163,7 +173,7 @@ function buildPrimaryCaseAction(input: {
         ? 'NEW'
         : getExistingCaseTargetId(target) || 'NEW',
     ...(target.visitDate ? { visitDate: target.visitDate } : {}),
-    toothNumber: target.toothNumber,
+    ...(target.toothNumber ? { toothNumber: target.toothNumber } : {}),
     sourceResolutionPath: target.status,
   };
 
@@ -232,7 +242,7 @@ function buildCaseSynthesisAction(input: {
 
   if (
     !hasCaseContent ||
-    target.status !== 'continue_case' ||
+    (target.status !== 'continue_case' && target.status !== 'direct_case_update') ||
     !getExistingCaseTargetId(target)
   ) {
     return null;
@@ -252,10 +262,14 @@ function buildCaseSynthesisAction(input: {
     target: {
       patientId,
       caseId: getExistingCaseTargetId(target)!,
+      ...(target.resolvedCaseRecordRef ? { entityRef: target.resolvedCaseRecordRef } : {}),
       ...(target.visitDate ? { visitDate: target.visitDate } : {}),
       ...(target.episodeStartDate ? { episodeStartDate: target.episodeStartDate } : {}),
-      toothNumber: target.toothNumber,
-      sourceResolutionPath: 'case_synthesis_update',
+      ...(target.toothNumber ? { toothNumber: target.toothNumber } : {}),
+      sourceResolutionPath:
+        target.status === 'direct_case_update'
+          ? 'case_direct_update'
+          : 'case_synthesis_update',
     },
     payloadIntent: {
       intendedChanges: intendedChanges ? { ...intendedChanges } : {},
@@ -285,14 +299,14 @@ function getCaseTargets(
   if (
     (resolution.status === 'create_case' ||
       resolution.status === 'continue_case' ||
+      resolution.status === 'direct_case_update' ||
       resolution.status === 'close_case' ||
-      resolution.status === 'split_case') &&
-    resolution.toothNumber
+      resolution.status === 'split_case')
   ) {
     return [
       {
         status: resolution.status,
-        toothNumber: resolution.toothNumber,
+        ...(resolution.toothNumber ? { toothNumber: resolution.toothNumber } : {}),
         ...(resolution.resolvedCaseId
           ? { resolvedCaseId: resolution.resolvedCaseId }
           : {}),

@@ -24,7 +24,7 @@ export function buildPreviewSummary(resolution, actions, warnings) {
     const snapshotActions = actions.filter((a) => a.entityType === 'snapshot');
     // Build patient preview
     const patientActionText = patientAction
-        ? describePatientAction(patientAction)
+        ? describePatientAction(patientAction, resolution)
         : 'No patient action';
     // Build visit preview
     const visitActionText = visitAction
@@ -73,7 +73,7 @@ export function buildPreviewSummary(resolution, actions, warnings) {
         nextStep,
     };
 }
-function describePatientAction(action) {
+function describePatientAction(action, resolution) {
     switch (action.actionType) {
         case 'create_patient':
             return `Create new patient record`;
@@ -82,6 +82,9 @@ function describePatientAction(action) {
         case 'attach_existing_patient':
             return `Use existing patient (ID: ${action.target.patientId})`;
         case 'no_op_patient':
+            if (resolution.patient.status === 'no_patient_needed') {
+                return 'No patient action needed';
+            }
             return `No patient action (blocked or skipped)`;
         default:
             return 'Unknown patient action';
@@ -135,6 +138,9 @@ function describeCaseResolutionFallback(resolution) {
             return `Continue existing case for tooth ${resolution.caseResolution.toothNumber}`;
         }
         return `Continue existing case`;
+    }
+    if (resolution.caseResolution.status === 'direct_case_update') {
+        return `Update existing case: ${resolution.caseResolution.resolvedCaseId || 'ID pending'}`;
     }
     return 'No case action';
 }

@@ -31,7 +31,7 @@ export function buildFollowUpActions(input) {
                 patientId: patientResolution.resolvedPatientId || 'NEW',
                 visitId: visitResolution.resolvedVisitId || 'NEW',
                 caseId,
-                toothNumber,
+                ...(toothNumber ? { toothNumber } : {}),
                 sourceResolutionPath: 'post_delivery_follow_up',
             },
             payloadIntent: {

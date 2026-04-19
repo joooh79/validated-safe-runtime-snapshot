@@ -109,7 +109,7 @@ export function buildLinkActions(
           caseTarget.status === 'create_case'
             ? 'NEW'
             : getExistingCaseTargetId(caseTarget) || 'NEW',
-        toothNumber: caseTarget.toothNumber,
+        ...(caseTarget.toothNumber ? { toothNumber: caseTarget.toothNumber } : {}),
         sourceResolutionPath: 'visit_to_case_link',
       },
       payloadIntent: {
@@ -175,7 +175,9 @@ export function buildLinkActions(
             matchingCaseTarget.status === 'create_case'
               ? 'NEW'
               : getExistingCaseTargetId(matchingCaseTarget) || 'NEW',
-          toothNumber: matchingCaseTarget.toothNumber,
+          ...(matchingCaseTarget.toothNumber
+            ? { toothNumber: matchingCaseTarget.toothNumber }
+            : {}),
           ...(snapshotAction.target.branch ? { branch: snapshotAction.target.branch } : {}),
           sourceResolutionPath: 'snapshot_to_case_link',
         },

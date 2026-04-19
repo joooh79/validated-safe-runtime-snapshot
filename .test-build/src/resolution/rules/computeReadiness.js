@@ -80,7 +80,8 @@ export function computeInteractionMode(readiness, correction) {
  */
 function isPatientResolutionValid(patient) {
     return (patient.status === 'resolved_existing_patient' ||
-        patient.status === 'create_new_patient');
+        patient.status === 'create_new_patient' ||
+        patient.status === 'no_patient_needed');
 }
 /**
  * Helper: is visit in a valid resolved state for proceeding?
@@ -96,7 +97,8 @@ function hasRequiredRuntimeRefs(patient, caseResolution) {
         !patient.resolvedPatientId) {
         return false;
     }
-    if (caseResolution.status === 'continue_case' &&
+    if ((caseResolution.status === 'continue_case' ||
+        caseResolution.status === 'direct_case_update') &&
         !caseResolution.resolvedCaseRecordRef &&
         !caseResolution.resolvedCaseId) {
         return false;

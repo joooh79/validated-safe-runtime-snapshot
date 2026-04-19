@@ -1026,3 +1026,114 @@ test('existing patient demographics can be updated without a visit workflow', as
   );
   assert.equal(patientResult?.status, 'success');
 });
+
+test('exact case id supports case-only updates without visit or findings', async () => {
+  const response = await orchestrateRequest({
+    normalizedContract: {
+      requestId: 'req_case_only_update_case_14',
+      workflowIntent: 'unknown',
+      continuityIntent: 'none',
+      patientClues: {},
+      visitContext: {},
+      findingsContext: {
+        toothItems: [],
+      },
+      caseUpdates: {
+        caseId: 'CASE-916872-14-20221013',
+        episodeStatus: 'closed',
+        finalProsthesisDeliveryDate: '2022-10-26',
+      },
+      warnings: [],
+    },
+    lookupBundle: {
+      patientLookup: {
+        found: false,
+      },
+      sameDateVisitLookup: {
+        found: false,
+      },
+      caseLookups: {
+        __direct_case__: {
+          found: true,
+          caseId: 'CASE-916872-14-20221013',
+          recordId: 'rec_case_14',
+          toothNumber: '14',
+          episodeStartDate: '2022-10-13',
+        },
+      },
+    },
+    providerConfig: {
+      kind: 'airtable',
+      mode: 'mock',
+    },
+  });
+
+  assert.equal(response.terminalStatus, 'preview_pending_confirmation');
+  assert.equal(response.plan?.readiness, 'execution_ready');
+  assert.equal(response.resolution?.patient.status, 'no_patient_needed');
+  assert.equal(response.resolution?.visit.status, 'no_visit_needed');
+  assert.equal(response.resolution?.caseResolution.status, 'direct_case_update');
+  assert.equal(response.resolution?.caseResolution.resolvedCaseId, 'CASE-916872-14-20221013');
+  assert.equal(response.preview?.patientBlock.value, 'No patient action needed');
+  assert.equal(response.preview?.visitBlock.value, 'No visit action needed');
+  assert.equal(response.preview?.caseBlock.value, 'Update existing case: CASE-916872-14-20221013');
+
+  const caseAction = response.plan?.actions.find(
+    (action) => action.actionType === 'update_case_latest_synthesis',
+  );
+  assert.deepEqual(caseAction?.payloadIntent?.intendedChanges, {
+    episodeStatus: 'closed',
+    finalProsthesisDeliveryDate: '2022-10-26',
+  });
+
+  const executed = await orchestrateRequest({
+    normalizedContract: {
+      requestId: 'req_case_only_update_case_14',
+      workflowIntent: 'unknown',
+      continuityIntent: 'none',
+      patientClues: {},
+      visitContext: {},
+      findingsContext: {
+        toothItems: [],
+      },
+      caseUpdates: {
+        caseId: 'CASE-916872-14-20221013',
+        episodeStatus: 'closed',
+        finalProsthesisDeliveryDate: '2022-10-26',
+      },
+      warnings: [],
+    },
+    lookupBundle: {
+      patientLookup: {
+        found: false,
+      },
+      sameDateVisitLookup: {
+        found: false,
+      },
+      caseLookups: {
+        __direct_case__: {
+          found: true,
+          caseId: 'CASE-916872-14-20221013',
+          recordId: 'rec_case_14',
+          toothNumber: '14',
+          episodeStartDate: '2022-10-13',
+        },
+      },
+    },
+    interactionInput: {
+      confirmation: {
+        confirmed: true,
+      },
+    },
+    providerConfig: {
+      kind: 'airtable',
+      mode: 'mock',
+    },
+  });
+
+  assert.equal(executed.terminalStatus, 'executed');
+  const executedCaseResult = executed.executionResult?.actionResults.find(
+    (action: { actionType: string }) => action.actionType === 'update_case_latest_synthesis',
+  );
+  assert.equal(executedCaseResult?.status, 'success');
+});

@@ -35,6 +35,10 @@ export function buildPatientActions(input) {
             actionType = 'create_patient';
             targetMode = 'create_new';
             break;
+        case 'no_patient_needed':
+            actionType = 'no_op_patient';
+            targetMode = 'no_op';
+            break;
         case 'correction_needed_patient_duplicate_suspicion':
         case 'recheck_required_patient_not_found':
         case 'unresolved_ambiguous_patient':

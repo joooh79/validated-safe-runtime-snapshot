@@ -537,6 +537,50 @@ test('update_case_latest_synthesis maps new case milestone and post-delivery fol
   assert.equal(requests[0]?.fields['Latest post-delivery follow-up result'], 'no issue');
 });
 
+test('update_case_latest_synthesis supports direct case-only updates without visit context', async () => {
+  const { provider, requests } = createCapturingProvider();
+
+  const action: WriteAction = {
+    actionId: 'action_direct_case_update',
+    actionOrder: 6,
+    actionType: 'update_case_latest_synthesis',
+    entityType: 'case',
+    targetMode: 'update_existing',
+    target: {
+      caseId: 'rec_case_direct_001',
+      sourceResolutionPath: 'case_direct_update',
+    },
+    payloadIntent: {
+      intendedChanges: {
+        episodeStatus: 'closed',
+        finalProsthesisDeliveryDate: '2022-10-26',
+      },
+      guardedFields: ['case_id'],
+    },
+    dependsOnActionIds: ['action_no_op_visit'],
+    blockers: [],
+    safety: {
+      duplicateSafe: true,
+      replayEligibleIfFailed: true,
+    },
+    previewVisible: false,
+  };
+
+  const result = await provider.executeAction(action, {
+    requestId: 'req_direct_case_update',
+    planId: 'plan_direct_case_update',
+    resolvedRefs: {},
+  });
+
+  assert.equal(result.status, 'success');
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0]?.type, 'update');
+  assert.equal(requests[0]?.recordId, 'rec_case_direct_001');
+  assert.equal(requests[0]?.fields['Episode status'], 'closed');
+  assert.equal(requests[0]?.fields['Final prosthesis delivery date'], '2022-10-26');
+  assert.equal('Latest Visit ID' in (requests[0]?.fields ?? {}), false);
+});
+
 test('update_case_latest_synthesis rejects non-schema post-delivery follow-up result values', async () => {
   const { provider, requests } = createCapturingProvider();
 

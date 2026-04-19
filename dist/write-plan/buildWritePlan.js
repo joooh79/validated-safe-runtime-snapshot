@@ -59,6 +59,8 @@ export async function buildWritePlan(input) {
     });
     const episodeStartVisitId = resolveSafeEpisodeStartVisitId(resolution);
     const hasCaseIntendedChanges = Object.keys(continuationPayload.caseIntendedChangesByTooth).length > 0;
+    const hasDirectCaseIntendedChanges = Boolean(continuationPayload.directCaseUpdate &&
+        Object.keys(continuationPayload.directCaseUpdate.intendedChanges).length > 0);
     const hasPatientContent = hasPatientUpdateContent(patientClues);
     // Step 1: Build patient actions
     const patientActions = buildPatientActions({
@@ -101,10 +103,13 @@ export async function buildWritePlan(input) {
         patientActionId: patientActions[0].actionId,
         visitActionId: visitActions[0].actionId,
         snapshotActionIds: [], // Will be filled after snapshot actions
-        hasCaseContent: (hasSnapshotContent || hasCaseIntendedChanges) &&
+        hasCaseContent: (hasSnapshotContent || hasCaseIntendedChanges || hasDirectCaseIntendedChanges) &&
             resolution.caseResolution.status !== 'none',
         claimedPatientId: patientClues?.patientId,
         caseIntendedChangesByTooth: continuationPayload.caseIntendedChangesByTooth,
+        ...(continuationPayload.directCaseUpdate
+            ? { directCaseUpdate: continuationPayload.directCaseUpdate }
+            : {}),
     });
     // Build snapshot actions
     const snapshotActions = buildSnapshotActions({
@@ -126,10 +131,13 @@ export async function buildWritePlan(input) {
         patientActionId: patientActions[0].actionId,
         visitActionId: visitActions[0].actionId,
         snapshotActionIds,
-        hasCaseContent: (hasSnapshotContent || hasCaseIntendedChanges) &&
+        hasCaseContent: (hasSnapshotContent || hasCaseIntendedChanges || hasDirectCaseIntendedChanges) &&
             resolution.caseResolution.status !== 'none',
         claimedPatientId: patientClues?.patientId,
         caseIntendedChangesByTooth: continuationPayload.caseIntendedChangesByTooth,
+        ...(continuationPayload.directCaseUpdate
+            ? { directCaseUpdate: continuationPayload.directCaseUpdate }
+            : {}),
     });
     // Step 5: Build link actions
     const linkActionInput = {

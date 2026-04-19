@@ -36,7 +36,7 @@ export function buildPreviewSummary(
 
   // Build patient preview
   const patientActionText = patientAction
-    ? describePatientAction(patientAction)
+    ? describePatientAction(patientAction, resolution)
     : 'No patient action';
 
   // Build visit preview
@@ -94,7 +94,10 @@ export function buildPreviewSummary(
   };
 }
 
-function describePatientAction(action: WriteAction): string {
+function describePatientAction(
+  action: WriteAction,
+  resolution: StateResolutionResult,
+): string {
   switch (action.actionType) {
     case 'create_patient':
       return `Create new patient record`;
@@ -103,6 +106,9 @@ function describePatientAction(action: WriteAction): string {
     case 'attach_existing_patient':
       return `Use existing patient (ID: ${action.target.patientId})`;
     case 'no_op_patient':
+      if (resolution.patient.status === 'no_patient_needed') {
+        return 'No patient action needed';
+      }
       return `No patient action (blocked or skipped)`;
     default:
       return 'Unknown patient action';
@@ -170,6 +176,10 @@ function describeCaseResolutionFallback(
     }
 
     return `Continue existing case`;
+  }
+
+  if (resolution.caseResolution.status === 'direct_case_update') {
+    return `Update existing case: ${resolution.caseResolution.resolvedCaseId || 'ID pending'}`;
   }
 
   return 'No case action';
