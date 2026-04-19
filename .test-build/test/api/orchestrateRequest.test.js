@@ -902,6 +902,132 @@ test('existing patient demographics can be updated without a visit workflow', as
     const patientResult = executed.executionResult?.actionResults.find((action) => action.actionType === 'update_patient');
     assert.equal(patientResult?.status, 'success');
 });
+test('real-mode patient_update resolves the Airtable patient record id during execute when lookupBundle only has patientId', async () => {
+    const originalFetch = globalThis.fetch;
+    const requests = [];
+    globalThis.fetch = (async (input, init) => {
+        const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+        const method = init?.method ?? 'GET';
+        if (method === 'GET' && url.includes('/Patients?')) {
+            return new Response(JSON.stringify({
+                records: [
+                    {
+                        id: 'rec_patient_196872',
+                        fields: {
+                            'Patients ID': '196872',
+                            'Birth year': 1965,
+                            Gender: 'Male',
+                        },
+                    },
+                ],
+            }), {
+                status: 200,
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+            });
+        }
+        if (method === 'PATCH' && url.includes('/Patients/rec_patient_196872')) {
+            requests.push({
+                url,
+                method,
+                body: typeof init?.body === 'string' ? init.body : '',
+            });
+            return new Response(JSON.stringify({
+                id: 'rec_patient_196872',
+            }), {
+                status: 200,
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+            });
+        }
+        throw new Error(`Unexpected fetch in test: ${method} ${url}`);
+    });
+    try {
+        const preview = await orchestrateRequest({
+            normalizedContract: {
+                requestId: 'req_patient_only_update_real_without_record_ref',
+                workflowIntent: 'unknown',
+                continuityIntent: 'none',
+                patientClues: {
+                    patientId: '196872',
+                    birthYear: '1966',
+                    genderHint: 'Female',
+                },
+                visitContext: {},
+                findingsContext: {
+                    toothItems: [],
+                },
+                warnings: [],
+            },
+            lookupBundle: {
+                patientLookup: {
+                    found: true,
+                    patientId: '196872',
+                },
+                sameDateVisitLookup: {
+                    found: false,
+                },
+                caseLookups: {},
+            },
+            providerConfig: {
+                kind: 'airtable',
+                mode: 'real',
+                baseId: 'app_test',
+                apiToken: 'pat_test',
+                apiBaseUrl: 'http://127.0.0.1:9999',
+            },
+        });
+        assert.equal(preview.terminalStatus, 'preview_pending_confirmation');
+        assert.equal(preview.plan?.readiness, 'execution_ready');
+        const executed = await orchestrateRequest({
+            normalizedContract: {
+                requestId: 'req_patient_only_update_real_without_record_ref',
+                workflowIntent: 'unknown',
+                continuityIntent: 'none',
+                patientClues: {
+                    patientId: '196872',
+                    birthYear: '1966',
+                    genderHint: 'Female',
+                },
+                visitContext: {},
+                findingsContext: {
+                    toothItems: [],
+                },
+                warnings: [],
+            },
+            lookupBundle: {
+                patientLookup: {
+                    found: true,
+                    patientId: '196872',
+                },
+                sameDateVisitLookup: {
+                    found: false,
+                },
+                caseLookups: {},
+            },
+            interactionInput: {
+                confirmation: {
+                    confirmed: true,
+                },
+            },
+            providerConfig: {
+                kind: 'airtable',
+                mode: 'real',
+                baseId: 'app_test',
+                apiToken: 'pat_test',
+                apiBaseUrl: 'http://127.0.0.1:9999',
+            },
+        });
+        assert.equal(executed.terminalStatus, 'executed');
+        assert.equal(requests.length, 1);
+        assert.match(requests[0].url, /\/Patients\/rec_patient_196872$/);
+    }
+    finally {
+        globalThis.fetch = originalFetch;
+    }
+});
 test('exact case id supports case-only updates without visit or findings', async () => {
     const response = await orchestrateRequest({
         normalizedContract: {

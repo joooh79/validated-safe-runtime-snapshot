@@ -156,6 +156,80 @@ test('update_patient writes existing patient demographics without requiring a vi
   assert.equal(requests[0]?.fields['Gender'], 'Female');
 });
 
+test('update_patient lazily resolves the Airtable patient record id in real mode when entityRef is missing', async () => {
+  const { provider, requests } = createCapturingProvider();
+  const originalFetch = globalThis.fetch;
+
+  globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+    assert.match(url, /Patients/);
+    assert.equal(init?.method, 'GET');
+
+    return new Response(
+      JSON.stringify({
+        records: [
+          {
+            id: 'rec_patient_196872',
+            fields: {
+              'Patients ID': '196872',
+            },
+          },
+        ],
+      }),
+      {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    );
+  }) as typeof fetch;
+
+  try {
+    const action: WriteAction = {
+      actionId: 'action_update_patient_lazy_lookup',
+      actionOrder: 1,
+      actionType: 'update_patient',
+      entityType: 'patient',
+      targetMode: 'update_existing',
+      target: {
+        patientId: '196872',
+        sourceResolutionPath: 'resolved_existing_patient',
+      },
+      payloadIntent: {
+        intendedChanges: {
+          birthYear: '1966',
+          gender: 'Female',
+        },
+        guardedFields: ['patient_id', 'date_created'],
+      },
+      dependsOnActionIds: [],
+      blockers: [],
+      safety: {
+        duplicateSafe: false,
+        replayEligibleIfFailed: false,
+        highRiskIdentityAction: true,
+      },
+      previewVisible: true,
+    };
+
+    const result = await provider.executeAction(action, {
+      requestId: 'req_update_patient_lazy_lookup',
+      planId: 'plan_update_patient_lazy_lookup',
+      resolvedRefs: {},
+    });
+
+    assert.equal(result.status, 'success');
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0]?.type, 'update');
+    assert.equal(requests[0]?.recordId, 'rec_patient_196872');
+    assert.equal(requests[0]?.fields['Birth year'], 1966);
+    assert.equal(requests[0]?.fields['Gender'], 'Female');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('create_visit writes linked patient refs as an array and includes the deterministic visit id', async () => {
   const { provider, requests } = createCapturingProvider();
 

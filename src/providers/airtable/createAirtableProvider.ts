@@ -119,21 +119,43 @@ export function createAirtableProvider(
       ctx: ProviderExecutionContext,
     ): Promise<ActionExecutionResult> {
       try {
+        const hydratedAction = await hydrateActionTargetRefs(
+          action,
+          config,
+          registry,
+        );
+
         // Handle no-op actions
-        if (action.actionType.startsWith('no_op')) {
+        if (hydratedAction.actionType.startsWith('no_op')) {
           return {
-            actionId: action.actionId,
-            actionType: action.actionType,
+            actionId: hydratedAction.actionId,
+            actionType: hydratedAction.actionType,
             status: 'no_op',
           };
         }
 
-        if (action.actionType === 'attach_existing_patient') {
+        if (hydratedAction.actionType === 'attach_existing_patient') {
           return {
-            actionId: action.actionId,
-            actionType: action.actionType,
+            actionId: hydratedAction.actionId,
+            actionType: hydratedAction.actionType,
             status: 'success',
-            providerRef: action.target.entityRef || action.target.patientId || action.actionId,
+            providerRef:
+              hydratedAction.target.entityRef ||
+              hydratedAction.target.patientId ||
+              hydratedAction.actionId,
+          };
+        }
+
+        if (
+          hydratedAction.entityType === 'patient' &&
+          hydratedAction.actionType === 'update_patient' &&
+          (!hydratedAction.target.entityRef || hydratedAction.target.entityRef === 'NEW')
+        ) {
+          return {
+            actionId: hydratedAction.actionId,
+            actionType: hydratedAction.actionType,
+            status: 'failed',
+            errorMessage: `Unable to resolve Airtable patient record id for patient ${hydratedAction.target.patientId}.`,
           };
         }
 
@@ -144,15 +166,15 @@ export function createAirtableProvider(
         // with an explicit existing row target. Broader Case/link semantics
         // still stay fail-closed.
         const validationError = getActionMappingError(
-          action,
+          hydratedAction,
           registry,
           config.requestExecutor !== 'real',
         );
         if (validationError) {
           const errorMsg = getErrorMessage(validationError);
           return {
-            actionId: action.actionId,
-            actionType: action.actionType,
+            actionId: hydratedAction.actionId,
+            actionType: hydratedAction.actionType,
             status: 'failed',
             errorMessage: errorMsg,
           };
@@ -160,39 +182,39 @@ export function createAirtableProvider(
 
         let mapResult;
 
-        if (action.entityType === 'patient') {
-          mapResult = mapPatientAction({ action, registry });
-        } else if (action.entityType === 'visit') {
+        if (hydratedAction.entityType === 'patient') {
+          mapResult = mapPatientAction({ action: hydratedAction, registry });
+        } else if (hydratedAction.entityType === 'visit') {
           mapResult = mapVisitAction({
-            action,
+            action: hydratedAction,
             registry,
             resolvedRefs: ctx.resolvedRefs,
             requireRuntimeRefs: true,
           });
-        } else if (action.entityType === 'case') {
+        } else if (hydratedAction.entityType === 'case') {
           mapResult = mapCaseAction({
-            action,
+            action: hydratedAction,
             registry,
             resolvedRefs: ctx.resolvedRefs,
             requireRuntimeRefs: true,
           });
-        } else if (action.entityType === 'link') {
+        } else if (hydratedAction.entityType === 'link') {
           mapResult = mapLinkAction({
-            action,
+            action: hydratedAction,
             registry,
             resolvedRefs: ctx.resolvedRefs,
             requireRuntimeRefs: true,
           });
-        } else if (action.entityType === 'follow_up') {
+        } else if (hydratedAction.entityType === 'follow_up') {
           mapResult = mapFollowUpAction({
-            action,
+            action: hydratedAction,
             registry,
             resolvedRefs: ctx.resolvedRefs,
             requireRuntimeRefs: true,
           });
         } else {
           mapResult = mapSnapshotAction({
-            action,
+            action: hydratedAction,
             registry,
             resolvedRefs: ctx.resolvedRefs,
             requireRuntimeRefs: true,
@@ -200,7 +222,7 @@ export function createAirtableProvider(
           if (
             !mapResult.success &&
             canUseAbstractSameDateSnapshotUpdate(
-              action,
+              hydratedAction,
               config.requestExecutor !== 'real',
             )
           ) {
@@ -221,11 +243,11 @@ export function createAirtableProvider(
         // Check if mapping failed
         if (!mapResult.success) {
           const mapError =
-            mapResult.error ?? getUnsupportedActionError(action);
+            mapResult.error ?? getUnsupportedActionError(hydratedAction);
           const errorMsg = getErrorMessage(mapError);
           return {
-            actionId: action.actionId,
-            actionType: action.actionType,
+            actionId: hydratedAction.actionId,
+            actionType: hydratedAction.actionType,
             status: 'failed',
             errorMessage: errorMsg,
           };
@@ -234,28 +256,28 @@ export function createAirtableProvider(
         // In dry-run mode, return success without executing
         if (config.requestExecutor === 'dryrun') {
           return {
-            actionId: action.actionId,
-            actionType: action.actionType,
+            actionId: hydratedAction.actionId,
+            actionType: hydratedAction.actionType,
             status: 'success',
-            providerRef: `simulated_${action.actionId}`,
+            providerRef: `simulated_${hydratedAction.actionId}`,
           };
         }
 
         // In mock mode, return success without executing
         if (config.requestExecutor === 'mock') {
           return {
-            actionId: action.actionId,
-            actionType: action.actionType,
+            actionId: hydratedAction.actionId,
+            actionType: hydratedAction.actionType,
             status: 'success',
-            providerRef: `mock_${action.actionId}`,
+            providerRef: `mock_${hydratedAction.actionId}`,
           };
         }
 
         // Execute through request executor if available
         if (!resolvedRequestExecutor) {
           return {
-            actionId: action.actionId,
-            actionType: action.actionType,
+            actionId: hydratedAction.actionId,
+            actionType: hydratedAction.actionType,
             status: 'failed',
             errorMessage: 'No request executor configured',
           };
@@ -281,18 +303,18 @@ export function createAirtableProvider(
 
         if (!response.success) {
           return {
-            actionId: action.actionId,
-            actionType: action.actionType,
+            actionId: hydratedAction.actionId,
+            actionType: hydratedAction.actionType,
             status: 'failed',
             errorMessage: response.error || 'Unknown provider error',
           };
         }
 
         return {
-          actionId: action.actionId,
-          actionType: action.actionType,
+          actionId: hydratedAction.actionId,
+          actionType: hydratedAction.actionType,
           status: 'success',
-          providerRef: response.recordId || action.actionId,
+          providerRef: response.recordId || hydratedAction.actionId,
         };
       } catch (err) {
         return {
@@ -304,6 +326,92 @@ export function createAirtableProvider(
       }
     },
   };
+}
+
+async function hydrateActionTargetRefs(
+  action: WriteAction,
+  config: AirtableProviderConfig,
+  registry: ReturnType<typeof createDefaultMappingRegistry>,
+): Promise<WriteAction> {
+  if (
+    config.requestExecutor !== 'real' ||
+    action.entityType !== 'patient' ||
+    action.actionType !== 'update_patient'
+  ) {
+    return action;
+  }
+
+  if (action.target.entityRef && action.target.entityRef !== 'NEW') {
+    return action;
+  }
+
+  const patientId = action.target.patientId?.trim();
+  if (!patientId || patientId === 'NEW') {
+    return action;
+  }
+
+  const recordId = await resolveRecordIdByFieldValue({
+    config,
+    tableName: 'Patients',
+    fieldName: registry.patientFields.patientId.fieldName,
+    fieldValue: patientId,
+  });
+
+  if (!recordId) {
+    return action;
+  }
+
+  return {
+    ...action,
+    target: {
+      ...action.target,
+      entityRef: recordId,
+    },
+  };
+}
+
+async function resolveRecordIdByFieldValue(input: {
+  config: AirtableProviderConfig;
+  tableName: string;
+  fieldName: string;
+  fieldValue: string;
+}): Promise<string | undefined> {
+  const { config, tableName, fieldName, fieldValue } = input;
+  const apiBaseUrl = (config.apiBaseUrl ?? 'https://api.airtable.com/v0').replace(/\/$/, '');
+  const url = new URL(
+    `${apiBaseUrl}/${encodeURIComponent(config.baseId)}/${encodeURIComponent(tableName)}`,
+  );
+  url.searchParams.set('filterByFormula', `{${fieldName}}='${escapeFormulaString(fieldValue)}'`);
+  url.searchParams.set('maxRecords', '1');
+  url.searchParams.append('fields[]', fieldName);
+
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${config.apiToken}`,
+    },
+  });
+
+  const responseBody = await parseExecutorResponseBody(response);
+  if (!response.ok || !isExecutorRecord(responseBody)) {
+    return undefined;
+  }
+
+  const records = responseBody.records;
+  if (!Array.isArray(records)) {
+    return undefined;
+  }
+
+  const firstRecord = records[0];
+  if (!isExecutorRecord(firstRecord) || typeof firstRecord.id !== 'string') {
+    return undefined;
+  }
+
+  return firstRecord.id;
+}
+
+function escapeFormulaString(value: string): string {
+  return value.replaceAll('\\', '\\\\').replaceAll("'", "\\'");
 }
 
 function createFetchRequestExecutor(
