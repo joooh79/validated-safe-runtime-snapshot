@@ -799,10 +799,22 @@ function evaluateExecuteGate(
   payload: unknown,
 ): {
   ok: boolean;
-  reason: 'missing_preview' | 'payload_changed' | 'preview_not_execute_ready';
+  reason:
+    | 'missing_preview'
+    | 'payload_changed'
+    | 'preview_not_execute_ready'
+    | 'full_payload_confirmed_without_preview_session';
   message: string;
 } {
   if (!previewState) {
+    if (hasFullExecutePayload(payload) && extractExecuteConfirmation(payload)) {
+      return {
+        ok: true,
+        reason: 'full_payload_confirmed_without_preview_session',
+        message: '',
+      };
+    }
+
     return {
       ok: false,
       reason: 'missing_preview',
@@ -928,6 +940,17 @@ function isExecuteResumePayload(payload: unknown): boolean {
     'lookupBundle' in payload ||
     'providerConfig' in payload ||
     'provider' in payload
+  );
+}
+
+function hasFullExecutePayload(payload: unknown): boolean {
+  if (!isRecord(payload)) {
+    return false;
+  }
+
+  return (
+    ('normalizedContract' in payload || 'contractInput' in payload) &&
+    'providerConfig' in payload
   );
 }
 

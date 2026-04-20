@@ -393,6 +393,7 @@ async function resolveRecordIdByFieldValue(input: {
   let offset: string | undefined;
 
   do {
+
     const page = await fetchRecordsPage(input, {
       ...(offset ? { offset } : {}),
       maxRecords: 100,

@@ -591,6 +591,13 @@ function attachPreviewTokenToResult(result, previewToken) {
 }
 function evaluateExecuteGate(previewState, payload) {
     if (!previewState) {
+        if (hasFullExecutePayload(payload) && extractExecuteConfirmation(payload)) {
+            return {
+                ok: true,
+                reason: 'full_payload_confirmed_without_preview_session',
+                message: '',
+            };
+        }
         return {
             ok: false,
             reason: 'missing_preview',
@@ -687,6 +694,13 @@ function isExecuteResumePayload(payload) {
         'lookupBundle' in payload ||
         'providerConfig' in payload ||
         'provider' in payload);
+}
+function hasFullExecutePayload(payload) {
+    if (!isRecord(payload)) {
+        return false;
+    }
+    return (('normalizedContract' in payload || 'contractInput' in payload) &&
+        'providerConfig' in payload);
 }
 function sanitizePayloadForPreview(payload) {
     if (!isRecord(payload)) {

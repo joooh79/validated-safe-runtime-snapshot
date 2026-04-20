@@ -214,7 +214,6 @@ test('MCP execute is blocked until preview succeeds in the same session', async 
         name: 'execute',
         arguments: {
           payload: {
-            ...apiFixture_safeNewVisitPreviewRequest,
             interactionInput: {
               confirmation: {
                 confirmed: true,
@@ -232,6 +231,52 @@ test('MCP execute is blocked until preview succeeds in the same session', async 
   assert.match(
     executeMessage.result.structuredContent.message,
     /Preview is required before execute in this MCP session/,
+  );
+});
+
+test('MCP execute is allowed with explicit confirmation when the full payload is resent without preview session state', async () => {
+  const { transport } = createTransportHarness();
+  const sseResponse = new MockResponse();
+
+  transport.handleSseConnection(
+    new MockRequest('GET', SERVER_ROUTES.internalMcpSse) as any,
+    sseResponse as any,
+  );
+
+  const sessionId = extractSessionId(sseResponse.body);
+  const executeAck = new MockResponse();
+  await transport.handleMessage(
+    new MockRequest(
+      'POST',
+      `${SERVER_ROUTES.internalMcpMessage}?sessionId=${sessionId}`,
+    ) as any,
+    executeAck as any,
+    {
+      jsonrpc: '2.0',
+      id: 4.1,
+      method: 'tools/call',
+      params: {
+        name: 'execute',
+        arguments: {
+          payload: {
+            ...apiFixture_safeNewVisitPreviewRequest,
+            interactionInput: {
+              confirmation: {
+                confirmed: true,
+              },
+            },
+          },
+        },
+      },
+    },
+  );
+
+  const executeMessage = extractLastSseEvent(sseResponse.body, 'message');
+  assert.equal(executeMessage.id, 4.1);
+  assert.equal(executeMessage.result.isError, false);
+  assert.equal(
+    executeMessage.result.structuredContent.terminalStatus,
+    'executed',
   );
 });
 

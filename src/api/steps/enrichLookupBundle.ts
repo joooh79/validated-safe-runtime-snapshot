@@ -253,8 +253,9 @@ async function findRecordByFieldValue(
 
   const normalizedValue = fieldValue.trim();
   let offset: string | undefined;
-
+ 
   do {
+
     const page = await fetchRecordsPage(config, tableName, fields, {
       ...(offset ? { offset } : {}),
       maxRecords: 100,
