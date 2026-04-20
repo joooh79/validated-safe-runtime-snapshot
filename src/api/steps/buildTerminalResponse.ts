@@ -41,6 +41,7 @@ export function buildTerminalResponse(
   const requiresConfirmation =
     interactionMode === 'preview_confirmation' &&
     plan.readiness === 'execution_ready';
+  const warnings = buildResponseWarnings(resolution, plan, executionResult);
 
   const readablePreview = buildReadablePreview(request, preview, plan);
   const interaction = buildConversationInteraction({
@@ -67,7 +68,7 @@ export function buildTerminalResponse(
     readablePreview,
     interaction,
     didWrite: computeDidWrite(executionResult),
-    warnings: [...resolution.warnings, ...plan.warnings],
+    warnings,
     nextStepHint: getNextStepHint(terminalStatus, interactionMode, request.confirmed),
     message: getMessage(terminalStatus, resolution, executionResult),
     confirmed: request.confirmed,
@@ -81,6 +82,7 @@ export function buildTerminalResponse(
     readablePreview,
     interaction,
     message: response.message,
+    warnings: response.warnings,
     requiresConfirmation,
   });
 
@@ -263,6 +265,8 @@ function getMessage(
   resolution: StateResolutionResult,
   executionResult?: ExecutionResult,
 ): string {
+  const executionFailureDetail = extractExecutionFailureDetail(executionResult);
+
   switch (terminalStatus) {
     case 'preview_pending_confirmation':
       return '미리보기가 준비되었습니다. 1. 이대로 진행 / 2. 종료 중에서 선택하세요.';
@@ -271,12 +275,48 @@ function getMessage(
     case 'hard_stop':
       return resolution.summary.nextStepSummary;
     case 'blocked_before_write':
-    case 'execution_failed':
     case 'executed':
       return executionResult?.summary || resolution.summary.nextStepSummary;
+    case 'execution_failed':
+      return executionFailureDetail
+        ? `${executionResult?.summary || 'Execution failed.'} [Error: ${executionFailureDetail}]`
+        : executionResult?.summary || resolution.summary.nextStepSummary;
     case 'no_op':
       return 'snapshot 달라진 내용이 없어, 샌더를 종료합니다.';
     default:
       return 'API orchestration completed.';
   }
+}
+
+function buildResponseWarnings(
+  resolution: StateResolutionResult,
+  plan: WritePlan,
+  executionResult?: ExecutionResult,
+): string[] {
+  const warnings = [...resolution.warnings, ...plan.warnings];
+  const executionFailureDetail = extractExecutionFailureDetail(executionResult);
+
+  if (executionFailureDetail) {
+    warnings.push(`Execution error: ${executionFailureDetail}`);
+  }
+
+  return warnings;
+}
+
+function extractExecutionFailureDetail(
+  executionResult?: ExecutionResult,
+): string | undefined {
+  if (!executionResult) {
+    return undefined;
+  }
+
+  const failedAction = executionResult.actionResults.find(
+    (actionResult) => actionResult.status === 'failed' && actionResult.errorMessage,
+  );
+
+  if (!failedAction?.errorMessage) {
+    return undefined;
+  }
+
+  return `${failedAction.actionType}: ${failedAction.errorMessage}`;
 }

@@ -1293,7 +1293,7 @@ test('patient-only demographic payload is normalized from existing_visit_update 
   }
 });
 
-test('patient-only real-mode preview surfaces Airtable lookup errors in warnings when recordId confirmation fails', async () => {
+test('patient-only real-mode preview blocks before write and surfaces Airtable lookup errors when recordId confirmation fails', async () => {
   const originalFetch = globalThis.fetch;
 
   globalThis.fetch = (async () =>
@@ -1358,10 +1358,17 @@ test('patient-only real-mode preview surfaces Airtable lookup errors in warnings
       },
     });
 
-    assert.equal(response.terminalStatus, 'preview_pending_confirmation');
+    assert.equal(response.terminalStatus, 'blocked_before_write');
+    assert.equal(response.interactionMode, 'hard_stop');
+    assert.equal(response.plan?.readiness, 'blocked');
     assert.ok(
       response.warnings.some((warning) =>
         warning.includes('Provider notes: Airtable lookup failed for Patients'),
+      ),
+    );
+    assert.ok(
+      response.warnings.some((warning) =>
+        warning.includes('Real Airtable patient update is blocked until the patient Airtable record id is resolved.'),
       ),
     );
   } finally {

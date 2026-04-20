@@ -56,6 +56,16 @@ export async function orchestrateRequest(request) {
                 terminalStatus: 'no_op',
             });
         }
+        if (plan.readiness === 'blocked') {
+            return buildTerminalResponse({
+                request: prepared,
+                resolution,
+                plan,
+                preview,
+                interactionMode,
+                terminalStatus: 'blocked_before_write',
+            });
+        }
         if (!prepared.confirmed) {
             return buildTerminalResponse({
                 request: prepared,

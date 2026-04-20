@@ -61,6 +61,7 @@ export async function normalizeRequest(
     contract: normalized,
     lookupBundle,
     provider: resolveProvider(request),
+    providerMode: request.providerConfig?.mode ?? (request.dryRun ? 'dryrun' : 'dryrun'),
     confirmed: request.interactionInput?.confirmation?.confirmed ?? false,
     dryRun: request.dryRun ?? request.providerConfig?.mode === 'dryrun',
   };

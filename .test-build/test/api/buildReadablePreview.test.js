@@ -9,6 +9,7 @@ test('buildReadablePreview exposes representative_fields from supported snapshot
         contract: fixture_existingPatientNewVisitSimple.contract,
         lookupBundle: fixture_existingPatientNewVisitSimple.lookups,
         provider: {},
+        providerMode: 'dryrun',
         confirmed: false,
         dryRun: true,
     };
@@ -162,6 +163,7 @@ test('buildReadablePreview surfaces new case milestone and post-delivery follow-
         contract: fixture_existingPatientNewVisitSimple.contract,
         lookupBundle: fixture_existingPatientNewVisitSimple.lookups,
         provider: {},
+        providerMode: 'dryrun',
         confirmed: false,
         dryRun: true,
     };

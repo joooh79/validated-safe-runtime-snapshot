@@ -66,6 +66,13 @@ function getPreviewMessage(
     return 'Preview generated from the actual write plan. Explicit confirmation is required before execution.';
   }
 
+  if (plan.readiness === 'blocked') {
+    return (
+      plan.warnings.find((warning) => warning.startsWith('🛑')) ??
+      'The write plan is blocked before execute. Review the blocking warning and retry only after it is resolved.'
+    );
+  }
+
   return resolution.summary.nextStepSummary || plan.preview.nextStep;
 }
 

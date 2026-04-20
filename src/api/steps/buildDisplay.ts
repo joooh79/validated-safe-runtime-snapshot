@@ -83,9 +83,10 @@ export function buildDisplay(input: {
   readablePreview: ApiReadablePreviewSummary;
   interaction: ApiConversationInteraction;
   message: string;
+  warnings: string[];
   requiresConfirmation: boolean;
 }): ApiDisplay {
-  const { request, preview, plan, readablePreview, interaction, message, requiresConfirmation } =
+  const { request, preview, plan, readablePreview, interaction, message, warnings, requiresConfirmation } =
     input;
 
   return {
@@ -95,7 +96,7 @@ export function buildDisplay(input: {
     visit: buildVisitDisplaySection(request, readablePreview, plan),
     case: buildCaseDisplaySection(request, readablePreview, plan),
     findings: buildFindingsDisplay(readablePreview, plan),
-    warnings: [...readablePreview.warnings],
+    warnings: [...warnings],
     interaction: {
       userMessage: interaction.userMessage,
       assistantQuestion: interaction.assistantQuestion,

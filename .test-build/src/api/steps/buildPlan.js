@@ -5,6 +5,7 @@ export async function buildPlan(request, resolution) {
         snapshotBranchIntents: deriveSnapshotBranchIntents(request, resolution),
         snapshotLookups: request.lookupBundle.snapshotLookups,
         hasVisitLevelChanges: hasVisitLevelChanges(request),
+        providerMode: request.providerMode,
         patientClues: request.contract.patientClues,
         visitContext: request.contract.visitContext,
         toothItems: request.contract.findingsContext.toothItems,

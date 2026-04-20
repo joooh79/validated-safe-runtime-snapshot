@@ -62,7 +62,7 @@ const CASE_INPUT_FIELD_LABELS = {
     latestPostDeliveryFollowUpResult: 'Latest post-delivery follow-up result',
 };
 export function buildDisplay(input) {
-    const { request, preview, plan, readablePreview, interaction, message, requiresConfirmation } = input;
+    const { request, preview, plan, readablePreview, interaction, message, warnings, requiresConfirmation } = input;
     return {
         title: preview.title,
         message,
@@ -70,7 +70,7 @@ export function buildDisplay(input) {
         visit: buildVisitDisplaySection(request, readablePreview, plan),
         case: buildCaseDisplaySection(request, readablePreview, plan),
         findings: buildFindingsDisplay(readablePreview, plan),
-        warnings: [...readablePreview.warnings],
+        warnings: [...warnings],
         interaction: {
             userMessage: interaction.userMessage,
             assistantQuestion: interaction.assistantQuestion,
