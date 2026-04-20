@@ -470,8 +470,16 @@ async function fetchRecordsPage(
   });
 
   const responseBody = await parseExecutorResponseBody(response);
-  if (!response.ok || !isExecutorRecord(responseBody)) {
-    return { records: [] };
+  if (!response.ok) {
+    throw new Error(
+      `Airtable lookup failed for ${tableName}.${fieldName}: ${extractExecutorError(response, responseBody)}`,
+    );
+  }
+
+  if (!isExecutorRecord(responseBody)) {
+    throw new Error(
+      `Airtable lookup failed for ${tableName}.${fieldName}: invalid response body.`,
+    );
   }
 
   return {

@@ -7,10 +7,16 @@ export async function enrichLookupBundle(request, contract, lookupBundle) {
     }
     const directCaseId = extractDirectCaseId(contract.caseUpdates);
     if (directCaseId) {
-        const directCaseLookup = await resolveCaseLookupByCaseId(providerConfig, directCaseId, lookupBundle.caseLookups[DIRECT_CASE_LOOKUP_KEY] ?? {
-            found: true,
-            caseId: directCaseId,
-        });
+        let directCaseLookup = null;
+        try {
+            directCaseLookup = await resolveCaseLookupByCaseId(providerConfig, directCaseId, lookupBundle.caseLookups[DIRECT_CASE_LOOKUP_KEY] ?? {
+                found: true,
+                caseId: directCaseId,
+            });
+        }
+        catch (error) {
+            lookupBundle.providerNotes = mergeProviderNotes(lookupBundle.providerNotes, getLookupErrorMessage(error));
+        }
         if (directCaseLookup) {
             lookupBundle.caseLookups[DIRECT_CASE_LOOKUP_KEY] = directCaseLookup;
         }
@@ -19,7 +25,13 @@ export async function enrichLookupBundle(request, contract, lookupBundle) {
     if (!patientId) {
         return;
     }
-    const patientLookup = await resolvePatientLookup(providerConfig, patientId, lookupBundle.patientLookup);
+    let patientLookup = lookupBundle.patientLookup;
+    try {
+        patientLookup = await resolvePatientLookup(providerConfig, patientId, lookupBundle.patientLookup);
+    }
+    catch (error) {
+        lookupBundle.providerNotes = mergeProviderNotes(lookupBundle.providerNotes, getLookupErrorMessage(error));
+    }
     lookupBundle.patientLookup = patientLookup;
     if (contract.continuityIntent !== 'continue_case') {
         return;
@@ -33,7 +45,13 @@ export async function enrichLookupBundle(request, contract, lookupBundle) {
     const toothNumber = touchedTeeth[0];
     const currentCaseLookup = lookupBundle.caseLookups[toothNumber];
     if (currentCaseLookup?.caseId && !currentCaseLookup.recordId) {
-        const exactCaseLookup = await resolveCaseLookupByCaseId(providerConfig, currentCaseLookup.caseId, currentCaseLookup);
+        let exactCaseLookup = null;
+        try {
+            exactCaseLookup = await resolveCaseLookupByCaseId(providerConfig, currentCaseLookup.caseId, currentCaseLookup);
+        }
+        catch (error) {
+            lookupBundle.providerNotes = mergeProviderNotes(lookupBundle.providerNotes, getLookupErrorMessage(error));
+        }
         if (exactCaseLookup?.recordId) {
             lookupBundle.caseLookups[toothNumber] = exactCaseLookup;
             return;
@@ -42,7 +60,14 @@ export async function enrichLookupBundle(request, contract, lookupBundle) {
     if (!patientLookup.recordId) {
         return;
     }
-    const candidates = await discoverCaseCandidates(providerConfig, patientLookup.recordId, toothNumber);
+    let candidates = [];
+    try {
+        candidates = await discoverCaseCandidates(providerConfig, patientLookup.recordId, toothNumber);
+    }
+    catch (error) {
+        lookupBundle.providerNotes = mergeProviderNotes(lookupBundle.providerNotes, getLookupErrorMessage(error));
+        return;
+    }
     if (candidates.length === 1) {
         const candidate = candidates[0];
         lookupBundle.caseLookups[toothNumber] = {
@@ -192,16 +217,46 @@ async function fetchRecordsPage(config, tableName, fields, options) {
             Authorization: `Bearer ${config.apiToken}`,
         },
     });
+    const rawBody = await response.text();
     if (!response.ok) {
-        return { records: [] };
+        throw new Error(`Airtable lookup failed for ${tableName}: ${extractLookupError(response.status, rawBody)}`);
     }
-    const body = await response.json();
+    let body;
+    try {
+        body = rawBody.trim()
+            ? JSON.parse(rawBody)
+            : { records: [] };
+    }
+    catch {
+        throw new Error(`Airtable lookup failed for ${tableName}: invalid JSON response body.`);
+    }
     return {
         records: Array.isArray(body.records) ? body.records : [],
         ...(typeof body.offset === 'string'
             ? { offset: body.offset }
             : {}),
     };
+}
+function extractLookupError(status, rawBody) {
+    if (rawBody.trim()) {
+        try {
+            const parsed = JSON.parse(rawBody);
+            if (isRecord(parsed)) {
+                const nestedError = parsed.error;
+                if (isRecord(nestedError) && typeof nestedError.message === 'string') {
+                    return nestedError.message;
+                }
+                if (typeof parsed.message === 'string') {
+                    return parsed.message;
+                }
+            }
+        }
+        catch {
+            return rawBody;
+        }
+        return rawBody;
+    }
+    return `HTTP ${status}`;
 }
 function escapeFormulaString(value) {
     return value.replaceAll('\\', '\\\\').replaceAll("'", "\\'");
@@ -280,4 +335,16 @@ function compareCaseCandidates(left, right) {
 }
 function withDefined(key, value) {
     return value === undefined ? {} : { [key]: value };
+}
+function mergeProviderNotes(existing, next) {
+    if (!existing) {
+        return next;
+    }
+    return `${existing}; ${next}`;
+}
+function getLookupErrorMessage(error) {
+    return error instanceof Error ? error.message : String(error);
+}
+function isRecord(value) {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

@@ -278,6 +278,58 @@ test('update_patient falls back to scanning Patients records when formula lookup
         globalThis.fetch = originalFetch;
     }
 });
+test('update_patient reports Airtable lookup errors instead of masking them as unresolved patient ids', async () => {
+    const { provider } = createCapturingProvider();
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+        error: {
+            message: 'Unknown field name: Patients ID',
+        },
+    }), {
+        status: 422,
+        headers: {
+            'Content-Type': 'application/json',
+        },
+    }));
+    try {
+        const action = {
+            actionId: 'action_update_patient_lookup_error',
+            actionOrder: 1,
+            actionType: 'update_patient',
+            entityType: 'patient',
+            targetMode: 'update_existing',
+            target: {
+                patientId: '196872',
+                sourceResolutionPath: 'resolved_existing_patient',
+            },
+            payloadIntent: {
+                intendedChanges: {
+                    birthYear: '1966',
+                    gender: 'Female',
+                },
+                guardedFields: ['patient_id', 'date_created'],
+            },
+            dependsOnActionIds: [],
+            blockers: [],
+            safety: {
+                duplicateSafe: false,
+                replayEligibleIfFailed: false,
+                highRiskIdentityAction: true,
+            },
+            previewVisible: true,
+        };
+        const result = await provider.executeAction(action, {
+            requestId: 'req_update_patient_lookup_error',
+            planId: 'plan_update_patient_lookup_error',
+            resolvedRefs: {},
+        });
+        assert.equal(result.status, 'failed');
+        assert.match(result.errorMessage ?? '', /Airtable lookup failed for Patients\.Patients ID: Unknown field name: Patients ID/);
+    }
+    finally {
+        globalThis.fetch = originalFetch;
+    }
+});
 test('create_visit writes linked patient refs as an array and includes the deterministic visit id', async () => {
     const { provider, requests } = createCapturingProvider();
     const action = {

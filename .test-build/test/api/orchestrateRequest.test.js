@@ -1136,6 +1136,71 @@ test('patient-only demographic payload is normalized from existing_visit_update 
         globalThis.fetch = originalFetch;
     }
 });
+test('patient-only real-mode preview surfaces Airtable lookup errors in warnings when recordId confirmation fails', async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+        error: {
+            message: 'Unknown field name: Patients ID',
+        },
+    }), {
+        status: 422,
+        headers: {
+            'Content-Type': 'application/json',
+        },
+    }));
+    try {
+        const response = await orchestrateRequest({
+            requestId: 'req_patient_lookup_warning',
+            normalizedContract: {
+                requestId: 'req_patient_lookup_warning',
+                workflowIntent: 'patient_update',
+                continuityIntent: 'none',
+                patientClues: {
+                    patientId: '196872',
+                    birthYear: '1966',
+                    genderHint: 'Female',
+                },
+                visitContext: {
+                    visitDate: '',
+                    visitType: '',
+                    chiefComplaint: '',
+                    painLevel: '',
+                    targetVisitId: '',
+                    doctorConfirmedCorrection: false,
+                },
+                findingsContext: {
+                    toothItems: [],
+                },
+                warnings: [
+                    'patient-only demographic update request',
+                    'do not create or update any visit',
+                ],
+            },
+            lookupBundle: {
+                patientLookup: {
+                    found: true,
+                    patientId: '196872',
+                },
+                sameDateVisitLookup: {
+                    found: false,
+                },
+                caseLookups: {},
+            },
+            providerConfig: {
+                kind: 'airtable',
+                mode: 'real',
+                baseId: 'app_test',
+                apiToken: 'pat_test',
+                apiBaseUrl: 'http://127.0.0.1:9999',
+            },
+        });
+        assert.equal(response.terminalStatus, 'preview_pending_confirmation');
+        assert.ok(response.warnings.some((warning) => warning.includes('Provider notes: Airtable lookup failed for Patients')));
+    }
+    finally {
+        globalThis.fetch = originalFetch;
+    }
+});
 test('exact case id supports case-only updates without visit or findings', async () => {
     const response = await orchestrateRequest({
         normalizedContract: {
