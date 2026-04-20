@@ -376,13 +376,89 @@ async function resolveRecordIdByFieldValue(input: {
   fieldName: string;
   fieldValue: string;
 }): Promise<string | undefined> {
-  const { config, tableName, fieldName, fieldValue } = input;
+  const { fieldName, fieldValue } = input;
+
+  for (const formula of buildFieldValueFormulas(fieldName, fieldValue)) {
+    const records = await fetchRecordsPage(input, {
+      filterByFormula: formula,
+      maxRecords: 1,
+    });
+    const firstRecord = records.records[0];
+    if (isExecutorRecord(firstRecord) && typeof firstRecord.id === 'string') {
+      return firstRecord.id;
+    }
+  }
+
+  const normalizedValue = fieldValue.trim();
+  let offset: string | undefined;
+
+  do {
+    const page = await fetchRecordsPage(input, {
+      ...(offset ? { offset } : {}),
+      maxRecords: 100,
+    });
+    const matchedRecord = page.records.find(
+      (record) =>
+        readString(record.fields?.[fieldName]) === normalizedValue &&
+        typeof record.id === 'string',
+    );
+    if (matchedRecord && typeof matchedRecord.id === 'string') {
+      return matchedRecord.id;
+    }
+
+    offset = page.offset;
+  } while (offset);
+
+  return undefined;
+}
+
+function escapeFormulaString(value: string): string {
+  return value.replaceAll('\\', '\\\\').replaceAll("'", "\\'");
+}
+
+function buildFieldValueFormulas(
+  fieldName: string,
+  fieldValue: string,
+): string[] {
+  const normalizedValue = fieldValue.trim();
+  const formulas = [
+    `{${fieldName}}='${escapeFormulaString(normalizedValue)}'`,
+    `TRIM({${fieldName}}&"")='${escapeFormulaString(normalizedValue)}'`,
+  ];
+
+  if (/^\d+$/.test(normalizedValue)) {
+    formulas.push(`VALUE({${fieldName}})=${Number(normalizedValue)}`);
+  }
+
+  return [...new Set(formulas)];
+}
+
+async function fetchRecordsPage(
+  input: {
+    config: AirtableProviderConfig;
+    tableName: string;
+    fieldName: string;
+    fieldValue: string;
+  },
+  options: {
+    filterByFormula?: string;
+    offset?: string;
+    maxRecords: number;
+  },
+): Promise<{ records: Array<{ id?: unknown; fields?: Record<string, unknown> }>; offset?: string }> {
+  const { config, tableName, fieldName } = input;
   const apiBaseUrl = (config.apiBaseUrl ?? 'https://api.airtable.com/v0').replace(/\/$/, '');
   const url = new URL(
     `${apiBaseUrl}/${encodeURIComponent(config.baseId)}/${encodeURIComponent(tableName)}`,
   );
-  url.searchParams.set('filterByFormula', `{${fieldName}}='${escapeFormulaString(fieldValue)}'`);
-  url.searchParams.set('maxRecords', '1');
+
+  if (options.filterByFormula) {
+    url.searchParams.set('filterByFormula', options.filterByFormula);
+  }
+  if (options.offset) {
+    url.searchParams.set('offset', options.offset);
+  }
+  url.searchParams.set('maxRecords', String(options.maxRecords));
   url.searchParams.append('fields[]', fieldName);
 
   const response = await fetch(url, {
@@ -394,24 +470,30 @@ async function resolveRecordIdByFieldValue(input: {
 
   const responseBody = await parseExecutorResponseBody(response);
   if (!response.ok || !isExecutorRecord(responseBody)) {
-    return undefined;
+    return { records: [] };
   }
 
-  const records = responseBody.records;
-  if (!Array.isArray(records)) {
-    return undefined;
-  }
-
-  const firstRecord = records[0];
-  if (!isExecutorRecord(firstRecord) || typeof firstRecord.id !== 'string') {
-    return undefined;
-  }
-
-  return firstRecord.id;
+  return {
+    records: Array.isArray(responseBody.records)
+      ? responseBody.records.filter(isExecutorRecord)
+      : [],
+    ...(typeof responseBody.offset === 'string'
+      ? { offset: responseBody.offset }
+      : {}),
+  };
 }
 
-function escapeFormulaString(value: string): string {
-  return value.replaceAll('\\', '\\\\').replaceAll("'", "\\'");
+function readString(value: unknown): string | undefined {
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    return trimmed ? trimmed : undefined;
+  }
+
+  if (typeof value === 'number') {
+    return String(value);
+  }
+
+  return undefined;
 }
 
 function createFetchRequestExecutor(

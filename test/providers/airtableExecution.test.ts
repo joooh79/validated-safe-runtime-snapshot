@@ -230,6 +230,101 @@ test('update_patient lazily resolves the Airtable patient record id in real mode
   }
 });
 
+test('update_patient falls back to scanning Patients records when formula lookup finds no direct match', async () => {
+  const { provider, requests } = createCapturingProvider();
+  const originalFetch = globalThis.fetch;
+  let lookupCallCount = 0;
+
+  globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
+    const url = new URL(
+      typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url,
+    );
+
+    if (init?.method === 'GET') {
+      lookupCallCount += 1;
+
+      if (url.searchParams.has('filterByFormula')) {
+        return new Response(
+          JSON.stringify({ records: [] }),
+          {
+            status: 200,
+            headers: {
+              'Content-Type': 'application/json',
+            },
+          },
+        );
+      }
+
+      return new Response(
+        JSON.stringify({
+          records: [
+            {
+              id: 'rec_patient_196872',
+              fields: {
+                'Patients ID': 196872,
+              },
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        },
+      );
+    }
+
+    throw new Error(`Unexpected fetch in test: ${init?.method ?? 'GET'} ${url}`);
+  }) as typeof fetch;
+
+  try {
+    const action: WriteAction = {
+      actionId: 'action_update_patient_scan_fallback',
+      actionOrder: 1,
+      actionType: 'update_patient',
+      entityType: 'patient',
+      targetMode: 'update_existing',
+      target: {
+        patientId: '196872',
+        sourceResolutionPath: 'resolved_existing_patient',
+      },
+      payloadIntent: {
+        intendedChanges: {
+          birthYear: '1966',
+          gender: 'Female',
+        },
+        guardedFields: ['patient_id', 'date_created'],
+      },
+      dependsOnActionIds: [],
+      blockers: [],
+      safety: {
+        duplicateSafe: false,
+        replayEligibleIfFailed: false,
+        highRiskIdentityAction: true,
+      },
+      previewVisible: true,
+    };
+
+    const result = await provider.executeAction(action, {
+      requestId: 'req_update_patient_scan_fallback',
+      planId: 'plan_update_patient_scan_fallback',
+      resolvedRefs: {},
+    });
+
+    assert.equal(result.status, 'success');
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0]?.type, 'update');
+    assert.equal(
+      requests[0] && 'recordId' in requests[0] ? requests[0].recordId : undefined,
+      'rec_patient_196872',
+    );
+    assert.equal(lookupCallCount >= 2, true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('create_visit writes linked patient refs as an array and includes the deterministic visit id', async () => {
   const { provider, requests } = createCapturingProvider();
 

@@ -77,14 +77,12 @@ async function resolvePatientLookup(config, patientId, currentLookup) {
     if (currentLookup.recordId) {
         return currentLookup;
     }
-    const formula = `{${patientFields.patientId.fieldName}}='${escapeFormulaString(patientId)}'`;
-    const records = await fetchRecords(config, 'Patients', formula, [
+    const record = await findRecordByFieldValue(config, 'Patients', patientFields.patientId.fieldName, patientId, [
         patientFields.patientId.fieldName,
         patientFields.birthYear.fieldName,
         patientFields.gender.fieldName,
         patientFields.firstVisitDate.fieldName,
     ]);
-    const record = records[0];
     if (!record) {
         return currentLookup;
     }
@@ -147,11 +145,45 @@ async function discoverCaseCandidates(config, patientRecordId, toothNumber) {
     }))
         .sort(compareCaseCandidates);
 }
+async function findRecordByFieldValue(config, tableName, fieldName, fieldValue, fields) {
+    for (const formula of buildFieldValueFormulas(fieldName, fieldValue)) {
+        const records = await fetchRecords(config, tableName, formula, fields);
+        if (records[0]) {
+            return records[0];
+        }
+    }
+    const normalizedValue = fieldValue.trim();
+    let offset;
+    do {
+        const page = await fetchRecordsPage(config, tableName, fields, {
+            ...(offset ? { offset } : {}),
+            maxRecords: 100,
+        });
+        const matchedRecord = page.records.find((record) => readString(record.fields[fieldName]) === normalizedValue);
+        if (matchedRecord) {
+            return matchedRecord;
+        }
+        offset = page.offset;
+    } while (offset);
+    return undefined;
+}
 async function fetchRecords(config, tableName, filterByFormula, fields) {
+    const page = await fetchRecordsPage(config, tableName, fields, {
+        filterByFormula,
+        maxRecords: 10,
+    });
+    return page.records;
+}
+async function fetchRecordsPage(config, tableName, fields, options) {
     const apiBaseUrl = (config.apiBaseUrl ?? 'https://api.airtable.com/v0').replace(/\/$/, '');
     const url = new URL(`${apiBaseUrl}/${encodeURIComponent(config.baseId)}/${encodeURIComponent(tableName)}`);
-    url.searchParams.set('filterByFormula', filterByFormula);
-    url.searchParams.set('maxRecords', '10');
+    if (options.filterByFormula) {
+        url.searchParams.set('filterByFormula', options.filterByFormula);
+    }
+    if (options.offset) {
+        url.searchParams.set('offset', options.offset);
+    }
+    url.searchParams.set('maxRecords', String(options.maxRecords));
     for (const field of fields) {
         url.searchParams.append('fields[]', field);
     }
@@ -161,13 +193,29 @@ async function fetchRecords(config, tableName, filterByFormula, fields) {
         },
     });
     if (!response.ok) {
-        return [];
+        return { records: [] };
     }
     const body = await response.json();
-    return Array.isArray(body.records) ? body.records : [];
+    return {
+        records: Array.isArray(body.records) ? body.records : [],
+        ...(typeof body.offset === 'string'
+            ? { offset: body.offset }
+            : {}),
+    };
 }
 function escapeFormulaString(value) {
     return value.replaceAll('\\', '\\\\').replaceAll("'", "\\'");
+}
+function buildFieldValueFormulas(fieldName, fieldValue) {
+    const normalizedValue = fieldValue.trim();
+    const formulas = [
+        `{${fieldName}}='${escapeFormulaString(normalizedValue)}'`,
+        `TRIM({${fieldName}}&"")='${escapeFormulaString(normalizedValue)}'`,
+    ];
+    if (/^\d+$/.test(normalizedValue)) {
+        formulas.push(`VALUE({${fieldName}})=${Number(normalizedValue)}`);
+    }
+    return [...new Set(formulas)];
 }
 function readString(value) {
     if (typeof value === 'string') {

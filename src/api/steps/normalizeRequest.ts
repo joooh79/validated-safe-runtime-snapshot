@@ -30,6 +30,7 @@ export async function normalizeRequest(
 
   applyInteractionInput(normalized, request);
   applyWorkflowClaimDefaults(normalized);
+  normalizeWorkflowIntentForVisitlessMutations(normalized);
   inferWorkflowIntent(normalized);
   normalizeFindingsPayloadKeys(normalized);
 
@@ -189,6 +190,48 @@ function inferWorkflowIntent(contract: NormalizedContract): void {
 
   if (hasDirectCaseUpdate) {
     contract.workflowIntent = 'case_update';
+  }
+}
+
+function normalizeWorkflowIntentForVisitlessMutations(
+  contract: NormalizedContract,
+): void {
+  const hasVisitContext =
+    hasMeaningfulValue(contract.visitContext.visitDate) ||
+    hasMeaningfulValue(contract.visitContext.targetVisitDate) ||
+    hasMeaningfulValue(contract.visitContext.targetVisitId) ||
+    hasMeaningfulValue(contract.visitContext.targetVisitClue) ||
+    hasMeaningfulValue(contract.visitContext.visitType) ||
+    hasMeaningfulValue(contract.visitContext.chiefComplaint);
+  const hasFindings = contract.findingsContext.toothItems.length > 0;
+  const hasPatientUpdateContent =
+    hasMeaningfulValue(contract.patientClues.patientId) &&
+    (hasMeaningfulValue(contract.patientClues.birthYear) ||
+      hasMeaningfulValue(contract.patientClues.genderHint));
+  const hasDirectCaseUpdate =
+    hasMeaningfulValue(resolveDirectCaseUpdateCaseId(contract.caseUpdates));
+
+  if (!hasVisitContext && !hasFindings && hasPatientUpdateContent) {
+    if (contract.workflowIntent !== 'patient_update') {
+      if (contract.workflowIntent !== 'unknown') {
+        contract.warnings.push(
+          `workflowIntent ${contract.workflowIntent} was normalized to patient_update because no visit or findings content was present.`,
+        );
+      }
+      contract.workflowIntent = 'patient_update';
+    }
+    return;
+  }
+
+  if (!hasVisitContext && !hasFindings && hasDirectCaseUpdate) {
+    if (contract.workflowIntent !== 'case_update') {
+      if (contract.workflowIntent !== 'unknown') {
+        contract.warnings.push(
+          `workflowIntent ${contract.workflowIntent} was normalized to case_update because no visit or findings content was present.`,
+        );
+      }
+      contract.workflowIntent = 'case_update';
+    }
   }
 }
 
