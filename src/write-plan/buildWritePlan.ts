@@ -37,7 +37,6 @@ import type {
   ToothFindingsItem,
   CaseUpdatesInput,
 } from '../types/contract.js';
-import type { ApiProviderConfig } from '../types/api.js';
 import type { CurrentStateLookupBundle } from '../resolution/index.js';
 import { buildPatientActions } from './rules/buildPatientActions.js';
 import { buildVisitActions } from './rules/buildVisitActions.js';
@@ -73,7 +72,6 @@ export interface BuildWritePlanInput {
    * Same-date snapshot-only updates should not fabricate a visit update.
    */
   hasVisitLevelChanges?: boolean;
-  providerMode?: ApiProviderConfig['mode'];
   patientClues?: PatientClues;
   visitContext?: VisitContext;
   toothItems?: ToothFindingsItem[];
@@ -92,7 +90,6 @@ export async function buildWritePlan(input: BuildWritePlanInput): Promise<WriteP
     inputHash,
     snapshotLookups,
     hasVisitLevelChanges,
-    providerMode,
     patientClues,
     visitContext,
     toothItems,
@@ -276,16 +273,9 @@ export async function buildWritePlan(input: BuildWritePlanInput): Promise<WriteP
 
   // Step 7: Build plan-level warnings
   const planWarnings = buildPlanWarnings(resolution, allActions);
-  if (hasBlockedRealPatientUpdateTarget(providerMode, allActions)) {
-    planWarnings.push(
-      '🛑 Real Airtable patient update is blocked until the patient Airtable record id is resolved.',
-    );
-  }
 
   // Step 8: Compute plan readiness
-  const planReadiness = hasBlockedRealPatientUpdateTarget(providerMode, allActions)
-    ? 'blocked'
-    : computePlanReadiness(resolution, allActions);
+  const planReadiness = computePlanReadiness(resolution, allActions);
 
   // Step 9: Generate preview summary
   const previewSummary = buildPreviewSummary(resolution, allActions, planWarnings);
@@ -313,23 +303,6 @@ export async function buildWritePlan(input: BuildWritePlanInput): Promise<WriteP
 
   return writePlan;
 }
-
-function hasBlockedRealPatientUpdateTarget(
-  providerMode: ApiProviderConfig['mode'] | undefined,
-  actions: WriteAction[],
-): boolean {
-  if (providerMode !== 'real') {
-    return false;
-  }
-
-  return actions.some(
-    (action) =>
-      action.entityType === 'patient' &&
-      action.actionType === 'update_patient' &&
-      (!action.target.entityRef || action.target.entityRef === 'NEW'),
-  );
-}
-
 function buildCaseActionIdsByTooth(
   actions: WriteAction[],
 ): Record<string, string> {

@@ -404,7 +404,6 @@ export interface PreparedApiRequest {
   contract: NormalizedContract;
   lookupBundle: CurrentStateLookupBundle;
   provider: DirectWriteProvider;
-  providerMode: ApiProviderConfig['mode'];
   confirmed: boolean;
   dryRun: boolean;
   metadata?: Record<string, unknown>;

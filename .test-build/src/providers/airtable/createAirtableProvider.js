@@ -77,16 +77,6 @@ export function createAirtableProvider(config, requestExecutor) {
                             hydratedAction.actionId,
                     };
                 }
-                if (hydratedAction.entityType === 'patient' &&
-                    hydratedAction.actionType === 'update_patient' &&
-                    (!hydratedAction.target.entityRef || hydratedAction.target.entityRef === 'NEW')) {
-                    return {
-                        actionId: hydratedAction.actionId,
-                        actionType: hydratedAction.actionType,
-                        status: 'failed',
-                        errorMessage: `Unable to resolve Airtable patient record id for patient ${hydratedAction.target.patientId}.`,
-                    };
-                }
                 // Map action to Airtable request based on entity type.
                 // The migrated Airtable schema is now known.
                 // The runtime keeps snapshot updates narrow: PRE remains active, and
@@ -200,18 +190,7 @@ export function createAirtableProvider(config, requestExecutor) {
                     };
                 }
                 // Build request
-                const request = 'recordId' in mapResult.request
-                    ? {
-                        type: 'update',
-                        table: mapResult.request.table,
-                        recordId: mapResult.request.recordId,
-                        fields: mapResult.request.fields,
-                    }
-                    : {
-                        type: 'create',
-                        table: mapResult.request.table,
-                        fields: mapResult.request.fields,
-                    };
+                const request = buildProviderRequest(hydratedAction, mapResult.request, registry);
                 // Execute request
                 const response = await resolvedRequestExecutor.execute(request);
                 if (!response.success) {
@@ -253,12 +232,20 @@ async function hydrateActionTargetRefs(action, config, registry) {
     if (!patientId || patientId === 'NEW') {
         return action;
     }
-    const recordId = await resolveRecordIdByFieldValue({
-        config,
-        tableName: 'Patients',
-        fieldName: registry.patientFields.patientId.fieldName,
-        fieldValue: patientId,
-    });
+    let recordId;
+    try {
+        recordId = await resolveRecordIdByFieldValue({
+            config,
+            tableName: 'Patients',
+            fieldName: registry.patientFields.patientId.fieldName,
+            fieldValue: patientId,
+        });
+    }
+    catch {
+        // Real patient updates can safely fall back to an Airtable upsert keyed by
+        // the business patient id when row-id hydration is unavailable.
+        return action;
+    }
     if (!recordId) {
         return action;
     }
@@ -365,14 +352,25 @@ function createFetchRequestExecutor(config) {
                 : `${apiBaseUrl}/${encodeURIComponent(config.baseId)}/${encodeURIComponent(request.table)}`;
             try {
                 const response = await fetch(url, {
-                    method: request.type === 'update' ? 'PATCH' : 'POST',
+                    method: request.type === 'create' ? 'POST' : 'PATCH',
                     headers: {
                         Authorization: `Bearer ${config.apiToken}`,
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({
-                        fields: request.fields,
-                    }),
+                    body: JSON.stringify(request.type === 'upsert'
+                        ? {
+                            performUpsert: {
+                                fieldsToMergeOn: request.mergeFields,
+                            },
+                            records: [
+                                {
+                                    fields: request.fields,
+                                },
+                            ],
+                        }
+                        : {
+                            fields: request.fields,
+                        }),
                 });
                 const responseBody = await parseExecutorResponseBody(response);
                 if (!response.ok) {
@@ -381,9 +379,7 @@ function createFetchRequestExecutor(config) {
                         error: extractExecutorError(response, responseBody),
                     };
                 }
-                const recordId = isExecutorRecord(responseBody) && typeof responseBody.id === 'string'
-                    ? responseBody.id
-                    : undefined;
+                const recordId = extractResponseRecordId(responseBody);
                 return {
                     success: true,
                     ...(recordId ? { recordId } : {}),
@@ -427,6 +423,46 @@ function extractExecutorError(response, responseBody) {
 }
 function isExecutorRecord(value) {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+function buildProviderRequest(action, request, registry) {
+    if (action.entityType === 'patient' &&
+        action.actionType === 'update_patient' &&
+        (!action.target.entityRef || action.target.entityRef === 'NEW')) {
+        return {
+            type: 'upsert',
+            table: request.table,
+            mergeFields: [registry.patientFields.patientId.fieldName],
+            fields: {
+                [registry.patientFields.patientId.fieldName]: action.target.patientId,
+                ...request.fields,
+            },
+        };
+    }
+    if ('recordId' in request && request.recordId) {
+        return {
+            type: 'update',
+            table: request.table,
+            recordId: request.recordId,
+            fields: request.fields,
+        };
+    }
+    return {
+        type: 'create',
+        table: request.table,
+        fields: request.fields,
+    };
+}
+function extractResponseRecordId(responseBody) {
+    if (isExecutorRecord(responseBody) && typeof responseBody.id === 'string') {
+        return responseBody.id;
+    }
+    if (isExecutorRecord(responseBody) && Array.isArray(responseBody.records)) {
+        const firstRecord = responseBody.records[0];
+        if (isExecutorRecord(firstRecord) && typeof firstRecord.id === 'string') {
+            return firstRecord.id;
+        }
+    }
+    return undefined;
 }
 /**
  * Create a mock Airtable provider for testing

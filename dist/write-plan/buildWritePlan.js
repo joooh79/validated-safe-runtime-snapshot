@@ -45,7 +45,7 @@ import { extractContinuationPayload } from './rules/extractContinuationPayload.j
  * This is the main entry point for the write-plan engine.
  */
 export async function buildWritePlan(input) {
-    const { resolution, snapshotBranchIntents, inputHash, snapshotLookups, hasVisitLevelChanges, providerMode, patientClues, visitContext, toothItems, caseUpdates, } = input;
+    const { resolution, snapshotBranchIntents, inputHash, snapshotLookups, hasVisitLevelChanges, patientClues, visitContext, toothItems, caseUpdates, } = input;
     // Generate plan ID (deterministic based on request)
     const planId = `plan_${input.resolution.requestId.slice(0, 8)}`;
     const branchIntents = snapshotBranchIntents ||
@@ -188,13 +188,8 @@ export async function buildWritePlan(input) {
     ]);
     // Step 7: Build plan-level warnings
     const planWarnings = buildPlanWarnings(resolution, allActions);
-    if (hasBlockedRealPatientUpdateTarget(providerMode, allActions)) {
-        planWarnings.push('🛑 Real Airtable patient update is blocked until the patient Airtable record id is resolved.');
-    }
     // Step 8: Compute plan readiness
-    const planReadiness = hasBlockedRealPatientUpdateTarget(providerMode, allActions)
-        ? 'blocked'
-        : computePlanReadiness(resolution, allActions);
+    const planReadiness = computePlanReadiness(resolution, allActions);
     // Step 9: Generate preview summary
     const previewSummary = buildPreviewSummary(resolution, allActions, planWarnings);
     // Step 10: Assemble final WritePlan
@@ -218,14 +213,6 @@ export async function buildWritePlan(input) {
         },
     };
     return writePlan;
-}
-function hasBlockedRealPatientUpdateTarget(providerMode, actions) {
-    if (providerMode !== 'real') {
-        return false;
-    }
-    return actions.some((action) => action.entityType === 'patient' &&
-        action.actionType === 'update_patient' &&
-        (!action.target.entityRef || action.target.entityRef === 'NEW'));
 }
 function buildCaseActionIdsByTooth(actions) {
     return Object.fromEntries(actions.flatMap((action) => action.entityType === 'case' &&

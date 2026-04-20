@@ -14,21 +14,8 @@ export async function orchestrateRequest(request) {
         const prepared = await normalizeRequest(request);
         const resolution = await runResolution(prepared);
         const plan = await buildPlan(prepared, resolution);
-        let interactionMode = enforceInteractionMode(resolution, plan);
-        let preview = buildPreview(resolution, plan, interactionMode);
-        if (plan.readiness === 'blocked' &&
-            resolution.interactionMode === 'preview_confirmation') {
-            interactionMode = 'hard_stop';
-            preview = buildPreview(resolution, plan, interactionMode);
-            return buildTerminalResponse({
-                request: prepared,
-                resolution,
-                plan,
-                preview,
-                interactionMode,
-                terminalStatus: 'blocked_before_write',
-            });
-        }
+        const interactionMode = enforceInteractionMode(resolution, plan);
+        const preview = buildPreview(resolution, plan, interactionMode);
         if (interactionMode === 'correction_required') {
             return buildTerminalResponse({
                 request: prepared,

@@ -1,12 +1,18 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createAirtableProvider, type CreateRequest, type RequestExecutor, type UpdateRequest } from '../../src/providers/airtable/createAirtableProvider.js';
+import {
+  createAirtableProvider,
+  type CreateRequest,
+  type RequestExecutor,
+  type UpdateRequest,
+  type UpsertRequest,
+} from '../../src/providers/airtable/createAirtableProvider.js';
 import { createDefaultMappingRegistry } from '../../src/providers/airtable/mappingRegistry.js';
 import { shouldSkipAction } from '../../src/execution/rules/shouldSkipAction.js';
 import type { WriteAction } from '../../src/types/write-plan.js';
 
 function createCapturingProvider() {
-  const requests: Array<CreateRequest | UpdateRequest> = [];
+  const requests: Array<CreateRequest | UpdateRequest | UpsertRequest> = [];
   const executor: RequestExecutor = {
     async execute(request) {
       requests.push(request);
@@ -325,8 +331,8 @@ test('update_patient falls back to scanning Patients records when formula lookup
   }
 });
 
-test('update_patient reports Airtable lookup errors instead of masking them as unresolved patient ids', async () => {
-  const { provider } = createCapturingProvider();
+test('update_patient falls back to upsert by Patients ID when Airtable record lookup errors in real mode', async () => {
+  const { provider, requests } = createCapturingProvider();
   const originalFetch = globalThis.fetch;
 
   globalThis.fetch = (async () =>
@@ -378,11 +384,16 @@ test('update_patient reports Airtable lookup errors instead of masking them as u
       resolvedRefs: {},
     });
 
-    assert.equal(result.status, 'failed');
-    assert.match(
-      result.errorMessage ?? '',
-      /Airtable lookup failed for Patients\.Patients ID: Unknown field name: Patients ID/,
+    assert.equal(result.status, 'success');
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0]?.type, 'upsert');
+    assert.deepEqual(
+      requests[0]?.type === 'upsert' ? requests[0].mergeFields : undefined,
+      ['Patients ID'],
     );
+    assert.equal(requests[0]?.fields['Patients ID'], '196872');
+    assert.equal(requests[0]?.fields['Birth year'], 1966);
+    assert.equal(requests[0]?.fields['Gender'], 'Female');
   } finally {
     globalThis.fetch = originalFetch;
   }

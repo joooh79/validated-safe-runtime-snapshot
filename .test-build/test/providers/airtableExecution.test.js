@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createAirtableProvider } from '../../src/providers/airtable/createAirtableProvider.js';
+import { createAirtableProvider, } from '../../src/providers/airtable/createAirtableProvider.js';
 import { createDefaultMappingRegistry } from '../../src/providers/airtable/mappingRegistry.js';
 import { shouldSkipAction } from '../../src/execution/rules/shouldSkipAction.js';
 function createCapturingProvider() {
@@ -278,8 +278,8 @@ test('update_patient falls back to scanning Patients records when formula lookup
         globalThis.fetch = originalFetch;
     }
 });
-test('update_patient reports Airtable lookup errors instead of masking them as unresolved patient ids', async () => {
-    const { provider } = createCapturingProvider();
+test('update_patient falls back to upsert by Patients ID when Airtable record lookup errors in real mode', async () => {
+    const { provider, requests } = createCapturingProvider();
     const originalFetch = globalThis.fetch;
     globalThis.fetch = (async () => new Response(JSON.stringify({
         error: {
@@ -323,8 +323,13 @@ test('update_patient reports Airtable lookup errors instead of masking them as u
             planId: 'plan_update_patient_lookup_error',
             resolvedRefs: {},
         });
-        assert.equal(result.status, 'failed');
-        assert.match(result.errorMessage ?? '', /Airtable lookup failed for Patients\.Patients ID: Unknown field name: Patients ID/);
+        assert.equal(result.status, 'success');
+        assert.equal(requests.length, 1);
+        assert.equal(requests[0]?.type, 'upsert');
+        assert.deepEqual(requests[0]?.type === 'upsert' ? requests[0].mergeFields : undefined, ['Patients ID']);
+        assert.equal(requests[0]?.fields['Patients ID'], '196872');
+        assert.equal(requests[0]?.fields['Birth year'], 1966);
+        assert.equal(requests[0]?.fields['Gender'], 'Female');
     }
     finally {
         globalThis.fetch = originalFetch;

@@ -42,7 +42,7 @@ export interface AirtableProviderConfig {
 }
 
 export interface RequestExecutor {
-  execute(request: CreateRequest | UpdateRequest): Promise<ExecutorResponse>;
+  execute(request: CreateRequest | UpdateRequest | UpsertRequest): Promise<ExecutorResponse>;
 }
 
 export interface CreateRequest {
@@ -55,6 +55,13 @@ export interface UpdateRequest {
   type: 'update';
   table: string;
   recordId: string;
+  fields: Record<string, unknown>;
+}
+
+export interface UpsertRequest {
+  type: 'upsert';
+  table: string;
+  mergeFields: string[];
   fields: Record<string, unknown>;
 }
 
@@ -143,19 +150,6 @@ export function createAirtableProvider(
               hydratedAction.target.entityRef ||
               hydratedAction.target.patientId ||
               hydratedAction.actionId,
-          };
-        }
-
-        if (
-          hydratedAction.entityType === 'patient' &&
-          hydratedAction.actionType === 'update_patient' &&
-          (!hydratedAction.target.entityRef || hydratedAction.target.entityRef === 'NEW')
-        ) {
-          return {
-            actionId: hydratedAction.actionId,
-            actionType: hydratedAction.actionType,
-            status: 'failed',
-            errorMessage: `Unable to resolve Airtable patient record id for patient ${hydratedAction.target.patientId}.`,
           };
         }
 
@@ -284,19 +278,7 @@ export function createAirtableProvider(
         }
 
         // Build request
-        const request =
-          'recordId' in mapResult.request
-            ? {
-                type: 'update' as const,
-                table: mapResult.request.table,
-                recordId: mapResult.request.recordId,
-                fields: mapResult.request.fields,
-              }
-            : {
-                type: 'create' as const,
-                table: mapResult.request.table,
-                fields: mapResult.request.fields,
-              };
+        const request = buildProviderRequest(hydratedAction, mapResult.request, registry);
 
         // Execute request
         const response = await resolvedRequestExecutor.execute(request);
@@ -350,12 +332,19 @@ async function hydrateActionTargetRefs(
     return action;
   }
 
-  const recordId = await resolveRecordIdByFieldValue({
-    config,
-    tableName: 'Patients',
-    fieldName: registry.patientFields.patientId.fieldName,
-    fieldValue: patientId,
-  });
+  let recordId: string | undefined;
+  try {
+    recordId = await resolveRecordIdByFieldValue({
+      config,
+      tableName: 'Patients',
+      fieldName: registry.patientFields.patientId.fieldName,
+      fieldValue: patientId,
+    });
+  } catch {
+    // Real patient updates can safely fall back to an Airtable upsert keyed by
+    // the business patient id when row-id hydration is unavailable.
+    return action;
+  }
 
   if (!recordId) {
     return action;
@@ -511,7 +500,7 @@ function createFetchRequestExecutor(
   const apiBaseUrl = (config.apiBaseUrl ?? 'https://api.airtable.com/v0').replace(/\/$/, '');
 
   return {
-    async execute(request: CreateRequest | UpdateRequest): Promise<ExecutorResponse> {
+    async execute(request: CreateRequest | UpdateRequest | UpsertRequest): Promise<ExecutorResponse> {
       const url =
         request.type === 'update'
           ? `${apiBaseUrl}/${encodeURIComponent(config.baseId)}/${encodeURIComponent(request.table)}/${encodeURIComponent(request.recordId)}`
@@ -519,14 +508,27 @@ function createFetchRequestExecutor(
 
       try {
         const response = await fetch(url, {
-          method: request.type === 'update' ? 'PATCH' : 'POST',
+          method: request.type === 'create' ? 'POST' : 'PATCH',
           headers: {
             Authorization: `Bearer ${config.apiToken}`,
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({
-            fields: request.fields,
-          }),
+          body: JSON.stringify(
+            request.type === 'upsert'
+              ? {
+                  performUpsert: {
+                    fieldsToMergeOn: request.mergeFields,
+                  },
+                  records: [
+                    {
+                      fields: request.fields,
+                    },
+                  ],
+                }
+              : {
+                  fields: request.fields,
+                },
+          ),
         });
 
         const responseBody = await parseExecutorResponseBody(response);
@@ -538,10 +540,7 @@ function createFetchRequestExecutor(
           };
         }
 
-        const recordId =
-          isExecutorRecord(responseBody) && typeof responseBody.id === 'string'
-            ? responseBody.id
-            : undefined;
+        const recordId = extractResponseRecordId(responseBody);
 
         return {
           success: true,
@@ -596,6 +595,58 @@ function extractExecutorError(
 
 function isExecutorRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function buildProviderRequest(
+  action: WriteAction,
+  request: { table: string; fields: Record<string, unknown>; recordId?: string },
+  registry: ReturnType<typeof createDefaultMappingRegistry>,
+): CreateRequest | UpdateRequest | UpsertRequest {
+  if (
+    action.entityType === 'patient' &&
+    action.actionType === 'update_patient' &&
+    (!action.target.entityRef || action.target.entityRef === 'NEW')
+  ) {
+    return {
+      type: 'upsert',
+      table: request.table,
+      mergeFields: [registry.patientFields.patientId.fieldName],
+      fields: {
+        [registry.patientFields.patientId.fieldName]: action.target.patientId,
+        ...request.fields,
+      },
+    };
+  }
+
+  if ('recordId' in request && request.recordId) {
+    return {
+      type: 'update',
+      table: request.table,
+      recordId: request.recordId,
+      fields: request.fields,
+    };
+  }
+
+  return {
+    type: 'create',
+    table: request.table,
+    fields: request.fields,
+  };
+}
+
+function extractResponseRecordId(responseBody: unknown): string | undefined {
+  if (isExecutorRecord(responseBody) && typeof responseBody.id === 'string') {
+    return responseBody.id;
+  }
+
+  if (isExecutorRecord(responseBody) && Array.isArray(responseBody.records)) {
+    const firstRecord = responseBody.records[0];
+    if (isExecutorRecord(firstRecord) && typeof firstRecord.id === 'string') {
+      return firstRecord.id;
+    }
+  }
+
+  return undefined;
 }
 
 /**

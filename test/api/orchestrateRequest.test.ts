@@ -1293,7 +1293,7 @@ test('patient-only demographic payload is normalized from existing_visit_update 
   }
 });
 
-test('patient-only real-mode preview blocks before write and surfaces Airtable lookup errors when recordId confirmation fails', async () => {
+test('patient-only real-mode preview surfaces Airtable lookup errors in warnings when recordId confirmation fails', async () => {
   const originalFetch = globalThis.fetch;
 
   globalThis.fetch = (async () =>
@@ -1358,19 +1358,129 @@ test('patient-only real-mode preview blocks before write and surfaces Airtable l
       },
     });
 
-    assert.equal(response.terminalStatus, 'blocked_before_write');
-    assert.equal(response.interactionMode, 'hard_stop');
-    assert.equal(response.plan?.readiness, 'blocked');
+    assert.equal(response.terminalStatus, 'preview_pending_confirmation');
     assert.ok(
       response.warnings.some((warning) =>
         warning.includes('Provider notes: Airtable lookup failed for Patients'),
       ),
     );
-    assert.ok(
-      response.warnings.some((warning) =>
-        warning.includes('Real Airtable patient update is blocked until the patient Airtable record id is resolved.'),
-      ),
-    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('patient-only real-mode execute falls back to Airtable upsert when patient record lookup cannot resolve a record id', async () => {
+  const originalFetch = globalThis.fetch;
+  const requests: Array<{ url: string; method: string; body: string }> = [];
+
+  globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+    const method = init?.method ?? 'GET';
+
+    if (method === 'GET' && url.includes('/Patients?')) {
+      return new Response(
+        JSON.stringify({
+          error: {
+            message: 'Unknown field name: Patients ID',
+          },
+        }),
+        {
+          status: 422,
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        },
+      );
+    }
+
+    if (method === 'PATCH' && /\/Patients$/.test(url)) {
+      requests.push({
+        url,
+        method,
+        body: typeof init?.body === 'string' ? init.body : '',
+      });
+
+      return new Response(
+        JSON.stringify({
+          records: [
+            {
+              id: 'rec_patient_196872',
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        },
+      );
+    }
+
+    throw new Error(`Unexpected fetch in test: ${method} ${url}`);
+  }) as typeof fetch;
+
+  try {
+    const executed = await orchestrateRequest({
+      normalizedContract: {
+        requestId: 'req_patient_only_196872_upsert_fallback',
+        workflowIntent: 'patient_update',
+        continuityIntent: 'none',
+        patientClues: {
+          patientId: '196872',
+          birthYear: '1966',
+          genderHint: 'Female',
+        },
+        visitContext: {
+          visitDate: '',
+          visitType: '',
+          chiefComplaint: '',
+          painLevel: '',
+          targetVisitId: '',
+          doctorConfirmedCorrection: false,
+        },
+        findingsContext: {
+          toothItems: [],
+        },
+        warnings: [
+          'patient-only demographic update request',
+          'do not create or update any visit',
+        ],
+      },
+      lookupBundle: {
+        patientLookup: {
+          found: true,
+          patientId: '196872',
+        },
+        sameDateVisitLookup: {
+          found: false,
+        },
+        caseLookups: {},
+      },
+      interactionInput: {
+        confirmation: {
+          confirmed: true,
+        },
+      },
+      providerConfig: {
+        kind: 'airtable',
+        mode: 'real',
+        baseId: 'app_test',
+        apiToken: 'pat_test',
+        apiBaseUrl: 'http://127.0.0.1:9999',
+      },
+    });
+
+    assert.equal(executed.terminalStatus, 'executed');
+    assert.equal(requests.length, 1);
+    const requestBody = JSON.parse(requests[0]!.body) as {
+      performUpsert?: { fieldsToMergeOn?: string[] };
+      records?: Array<{ fields?: Record<string, unknown> }>;
+    };
+    assert.deepEqual(requestBody.performUpsert?.fieldsToMergeOn, ['Patients ID']);
+    assert.equal(requestBody.records?.[0]?.fields?.['Patients ID'], '196872');
+    assert.equal(requestBody.records?.[0]?.fields?.['Birth year'], 1966);
+    assert.equal(requestBody.records?.[0]?.fields?.['Gender'], 'Female');
   } finally {
     globalThis.fetch = originalFetch;
   }
